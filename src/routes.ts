@@ -140,7 +140,7 @@ export function registerRoutes(app: FastifyInstance, service: PnyxService) {
   });
 
   app.setErrorHandler((err, _req, reply) => {
-    if (err instanceof ApiError) return reply.code(err.status).send({ error: err.message });
+    if (err instanceof ApiError) return reply.code(err.status).send({ error: err.message, ...err.details });
     if (err instanceof z.ZodError) {
       return reply.code(400).send({ error: "invalid request", issues: err.issues });
     }

@@ -43,4 +43,8 @@ export interface Repository {
 
   /* GDPR */
   deleteUser(userId: string): Promise<void>;
+
+  /* moderation */
+  /** Logs a content-moderation strike against a user and returns their new total. */
+  recordStrike(userId: string, reason: string): Promise<number>;
 }

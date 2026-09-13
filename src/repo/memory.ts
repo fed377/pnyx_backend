@@ -16,6 +16,7 @@ export class MemoryRepository implements Repository {
   private content = new Map<string, ContentRow>();
   private votes = new Map<string, VoteRow>(); // `${userId}:${contentId}`
   private follows = new Set<string>(); // `${follower}:${followee}`
+  private strikes = new Map<string, number>();
 
   constructor() {
     this.seed();
@@ -212,6 +213,13 @@ export class MemoryRepository implements Repository {
     for (const k of this.follows) {
       if (k.startsWith(`${userId}:`) || k.endsWith(`:${userId}`)) this.follows.delete(k);
     }
+    this.strikes.delete(userId);
+  }
+
+  async recordStrike(userId: string, _reason: string) {
+    const next = (this.strikes.get(userId) ?? 0) + 1;
+    this.strikes.set(userId, next);
+    return next;
   }
 }
 

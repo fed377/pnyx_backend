@@ -6,6 +6,7 @@ import type { GridId } from "../src/core/types";
 import type { MediaStore, UploadTicket } from "../src/media";
 import { MemoryRepository } from "../src/repo/memory";
 import { DeterministicScorer } from "../src/scoring/scorer";
+import type { ContentScorer, ScoreOutcome } from "../src/scoring/scorer";
 import { PnyxService } from "../src/service";
 import { buildServer } from "../src/server";
 
@@ -29,6 +30,15 @@ class FakeMediaStore implements MediaStore {
   }
   publicUrl(path: string) {
     return `https://cdn.test/${path}`;
+  }
+}
+
+/** Returns whatever verdict a test hands it, instead of actually scoring anything. */
+class FakeScorer implements ContentScorer {
+  readonly name = "fake";
+  constructor(private readonly outcome: ScoreOutcome) {}
+  async score() {
+    return this.outcome;
   }
 }
 
@@ -105,6 +115,21 @@ describe("the vote pipeline", () => {
     // the like was taken back off the tally and the hate added
     expect(content!.tallies.like).toBe(44 - 1 + 1); // seeded 44, +1 then -1
     expect(content!.tallies.hate).toBe(7 + 1);
+  });
+
+  it("hands back the content's own fresh tallies, not a stale pre-vote snapshot", async () => {
+    // Captured by value (not the row reference) — the in-memory repo mutates
+    // tallies in place, same as a real read-after-write against Postgres would
+    // require a fresh SELECT rather than trusting an object held from before.
+    const beforeLove = (await repo.getContent("c01"))!.tallies.love;
+
+    const result = await service.castVote(ME, "c01", 2);
+    expect(result.tallies.love).toBe(beforeLove + 1);
+
+    // and it matches whatever a fresh read of the row says, not a copy taken
+    // before the vote was applied
+    const after = await repo.getContent("c01");
+    expect(result.tallies).toEqual(after!.tallies);
   });
 
   it("refuses a vote on your own post", async () => {
@@ -218,6 +243,75 @@ describe("contributing", () => {
     // grids the author did not pick get a near-central, low-confidence point
     expect(row.scores.focus.confidence).toBeLessThan(0.2);
     expect(row.scores.focus.x).toBe(0);
+  });
+
+  it("blocks a policy-violating post, strikes its author, and never publishes it", async () => {
+    await service.updateProfile(ME, { privacyTier: "speaker" });
+    const flagging = new PnyxService(
+      repo,
+      new FakeScorer({ verdict: "policy_violation", reason: "detailed instructions for building a weapon" }),
+      media,
+    );
+    const before = await repo.listContent({});
+
+    await expect(
+      flagging.createContent(ME, {
+        type: "image",
+        body: "A post that should never see daylight.",
+        categories: ["values"],
+        mediaPath: `u/${ME}/image.jpg`,
+        mediaType: "image/jpeg",
+      }),
+    ).rejects.toMatchObject({
+      status: 422,
+      details: { code: "policy_violation", flagged: true, strikeCount: 1 },
+    });
+
+    // nothing was published, and a second violation escalates the count
+    expect(await repo.listContent({})).toHaveLength(before.length);
+    await expect(
+      flagging.createContent(ME, {
+        type: "image",
+        body: "Another one.",
+        categories: ["values"],
+        mediaPath: `u/${ME}/image2.jpg`,
+        mediaType: "image/jpeg",
+      }),
+    ).rejects.toMatchObject({ details: { strikeCount: 2 } });
+  });
+
+  it("rejects a meaningless post without striking its author", async () => {
+    await service.updateProfile(ME, { privacyTier: "speaker" });
+    const reason = "This doesn't say what you actually think about anything.";
+    const lowEffort = new PnyxService(repo, new FakeScorer({ verdict: "low_effort", reason }), media);
+    const before = await repo.listContent({});
+
+    await expect(
+      lowEffort.createContent(ME, {
+        type: "image",
+        body: "asdkjfh asdkjfh asdkjfh",
+        categories: ["values"],
+        mediaPath: `u/${ME}/image.jpg`,
+        mediaType: "image/jpeg",
+      }),
+    ).rejects.toMatchObject({ status: 422, message: reason, details: { code: "low_effort", flagged: false } });
+
+    expect(await repo.listContent({})).toHaveLength(before.length);
+    // and no strike was recorded — a follow-up violation should still start at 1
+    const flagging = new PnyxService(
+      repo,
+      new FakeScorer({ verdict: "policy_violation", reason: "x" }),
+      media,
+    );
+    await expect(
+      flagging.createContent(ME, {
+        type: "image",
+        body: "Something that does violate policy.",
+        categories: ["values"],
+        mediaPath: `u/${ME}/image3.jpg`,
+        mediaType: "image/jpeg",
+      }),
+    ).rejects.toMatchObject({ details: { strikeCount: 1 } });
   });
 });
 

@@ -15,6 +15,10 @@ export const config = {
   supabaseServiceKey: process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
   supabaseJwtSecret: process.env.SUPABASE_JWT_SECRET ?? "",
 
+  /** Spec §8 content scoring. Without it the server falls back to the deterministic stub. */
+  geminiApiKey: process.env.GEMINI_API_KEY ?? "",
+  scorerModel: process.env.SCORER_MODEL ?? "gemini-2.5-flash-lite",
+
   /**
    * Accept `Authorization: Bearer dev:<userId>` instead of a real Supabase JWT.
    * Convenient locally, refused whenever STORE=supabase.

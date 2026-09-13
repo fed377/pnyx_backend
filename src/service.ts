@@ -97,7 +97,13 @@ export class PnyxService {
     delta[bucketOf(power)] = (delta[bucketOf(power)] ?? 0) + 1;
     await this.repo.adjustTallies(contentId, delta);
 
-    const { positions, voteCount } = await this.recomputePositions(userId);
+    // Re-read rather than apply `delta` in memory: the DB is the source of
+    // truth for the tally (Supabase applies it via an atomic RPC, so a
+    // concurrent voter's change could otherwise be clobbered by a stale add).
+    const [{ positions, voteCount }, updated] = await Promise.all([
+      this.recomputePositions(userId),
+      this.repo.getContent(contentId),
+    ]);
     const unlocked = voteCount >= UNLOCK_AT;
 
     return {
@@ -107,6 +113,9 @@ export class PnyxService {
       unlockIn: Math.max(0, UNLOCK_AT - voteCount),
       replaced: previousPower,
       identity: summarise(positions, unlocked),
+      // The caller just voted on this content — hand back its fresh global
+      // split so the client can show an accurate count without refetching.
+      tallies: updated?.tallies ?? content.tallies,
     };
   }
 
@@ -303,15 +312,34 @@ export class PnyxService {
       throw new ApiError(400, "upload the file before creating the post");
     }
 
-    const scores = await this.scorer.score(input);
+    const mediaUrl = this.media.publicUrl(input.mediaPath);
+    const outcome = await this.scorer.score({ ...input, mediaUrl });
+
+    if (outcome.verdict === "policy_violation") {
+      const strikeCount = await this.repo.recordStrike(userId, outcome.reason);
+      // The model's specific reason goes to the strike log for a moderator to
+      // read, not back to the poster — a generic message doesn't teach anyone
+      // how to word their way past the filter next time.
+      throw new ApiError(422, "This post was removed for violating PNYX's content guidelines. You've been flagged for review.", {
+        code: "policy_violation",
+        flagged: true,
+        strikeCount,
+      });
+    }
+    if (outcome.verdict === "low_effort") {
+      // Not a strike — the poster just hasn't said anything yet. The model's
+      // reason IS the message here, since the whole point is to tell them why.
+      throw new ApiError(422, outcome.reason, { code: "low_effort", flagged: false });
+    }
+
     return this.repo.insertContent({
       authorId: userId,
       type: input.type,
       body: input.body,
       context: input.context,
       music: input.music,
-      mediaUrl: this.media.publicUrl(input.mediaPath),
-      scores,
+      mediaUrl,
+      scores: outcome.scores,
       scorer: this.scorer.name,
       // Spec §8: everything user-generated goes through moderation before it is seen.
       moderationStatus: "pending",

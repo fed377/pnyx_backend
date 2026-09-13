@@ -351,4 +351,10 @@ export class SupabaseRepository implements Repository {
     const { error } = await this.db.rpc("forget_me", { target: userId });
     if (error) throw new Error(`deleteUser: ${error.message}`);
   }
+
+  async recordStrike(userId: string, reason: string) {
+    const { data, error } = await this.db.rpc("record_strike", { target: userId, why: reason });
+    if (error) throw new Error(`recordStrike: ${error.message}`);
+    return data as number;
+  }
 }

@@ -14,6 +14,16 @@ export const MAX_WINDOW = 250;
 export const UNLOCK_AT = 50;
 /** The first N reels are deliberately broad, to bootstrap a profile. */
 export const COLD_START = 50;
+/**
+ * A vote sits pending — shown immediately, cancellable by tapping again —
+ * before it commits: dispatched into the movement equation and sent to the
+ * server. Once committed it's permanent; the replay-based positions make an
+ * arbitrary historical vote well-defined to remove locally, but the server
+ * has no such endpoint, and retroactively undoing a vote that isn't your
+ * most recent one would be a confusing thing for the product to support
+ * even where it's technically possible.
+ */
+export const VOTE_GRACE_MS = 7000;
 /** Furthest two positions can be on a [-1,1]² grid. */
 export const MAX_DIST = 2 * Math.SQRT2;
 

@@ -7,18 +7,21 @@ import { MemoryRepository } from "./repo/memory";
 import { SupabaseRepository } from "./repo/supabase";
 import type { Repository } from "./repo/types";
 import { registerRoutes } from "./routes";
+import { GeminiScorer } from "./scoring/geminiScorer";
 import { DeterministicScorer } from "./scoring/scorer";
+import type { ContentScorer } from "./scoring/scorer";
 import { PnyxService } from "./service";
 
 export function buildServer(
   repo: Repository = new MemoryRepository(),
   media: MediaStore = new NullMediaStore(),
+  scorer: ContentScorer = new DeterministicScorer(),
 ) {
   // Quiet under vitest: request logging dominates the cost of an inject() call.
   const app = Fastify({
     logger: process.env.VITEST ? false : { level: process.env.LOG_LEVEL ?? "info" },
   });
-  const service = new PnyxService(repo, new DeterministicScorer(), media);
+  const service = new PnyxService(repo, scorer, media);
   registerRoutes(app, service);
   return app;
 }
@@ -36,16 +39,23 @@ async function main() {
       ? new SupabaseMediaStore(config.supabaseUrl, config.supabaseServiceKey)
       : new NullMediaStore();
 
-  const app = buildServer(repo, media);
+  // Spec §8: real scoring needs a key. Without one we fall back to the deterministic
+  // stub rather than refuse to boot, so local dev still works with no AI configured —
+  // but the stub is not fit for real users, hence the loud warning below.
+  const scorer: ContentScorer = config.geminiApiKey
+    ? new GeminiScorer({ apiKey: config.geminiApiKey, model: config.scorerModel })
+    : new DeterministicScorer();
+
+  const app = buildServer(repo, media, scorer);
   await app.register(cors, { origin: true });
 
   await app.listen({ port: config.port, host: config.host });
-  app.log.info(
-    { store: config.store, devAuth: config.devAuth, scorer: "deterministic-stub" },
-    "PNYX API ready",
-  );
+  app.log.info({ store: config.store, devAuth: config.devAuth, scorer: scorer.name }, "PNYX API ready");
   if (config.store === "memory") {
     app.log.warn("running on the in-memory store — nothing is persisted");
+  }
+  if (scorer.name === "deterministic-stub") {
+    app.log.warn("GEMINI_API_KEY is not set — posts are scored with the deterministic stub, not AI");
   }
 }
 

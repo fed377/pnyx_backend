@@ -59,6 +59,8 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    /** Extra fields merged into the error response body (e.g. a moderation code). */
+    readonly details?: Record<string, unknown>,
   ) {
     super(message);
   }
