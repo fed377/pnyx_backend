@@ -92,6 +92,9 @@ export type Person = {
   bio: string;
   tier: PrivacyTier;
   city: string;
+  /** A real uploaded photo, when they have one — falls back to the monogram
+   * avatar otherwise. */
+  avatarUrl?: string;
   positions: Positions;
   voteCount: number;
   following: boolean;
@@ -102,6 +105,14 @@ export type HotTake = {
   id: string;
   authorId: string;
   text: string;
+  /** Which grid this take is filed under — shown as its category chip. */
+  category: GridId;
+  /** Static reaction counts. Hot Takes are ephemeral and don't move your
+   * grids (spec), so these are display-only, not something you can cast. */
+  up: number;
+  down: number;
+  comments: number;
+  createdAt: number;
 };
 
 export type ChatMessage = {

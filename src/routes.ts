@@ -21,6 +21,7 @@ const profilePatch = z.object({
   pronouns: z.string().max(40).optional(),
   bio: z.string().max(400).optional(),
   city: z.string().max(80).optional(),
+  avatarUrl: z.string().url().max(500).optional(),
   privacyTier: z.enum(["speaker", "active", "private"]).optional(),
   gridPublic: z
     .object({

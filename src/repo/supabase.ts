@@ -11,6 +11,7 @@ type ProfileRecord = {
   pronouns: string;
   bio: string;
   city: string;
+  avatar_url: string | null;
   privacy_tier: ProfileRow["privacyTier"];
   grid_public: Record<GridId, boolean>;
   premium: boolean;
@@ -61,6 +62,7 @@ const toProfile = (r: ProfileRecord): ProfileRow => ({
   pronouns: r.pronouns,
   bio: r.bio,
   city: r.city,
+  avatarUrl: r.avatar_url ?? undefined,
   privacyTier: r.privacy_tier,
   gridPublic: r.grid_public,
   premium: r.premium,
@@ -149,6 +151,7 @@ export class SupabaseRepository implements Repository {
     if (patch.pronouns !== undefined) record.pronouns = patch.pronouns;
     if (patch.bio !== undefined) record.bio = patch.bio;
     if (patch.city !== undefined) record.city = patch.city;
+    if (patch.avatarUrl !== undefined) record.avatar_url = patch.avatarUrl;
     if (patch.privacyTier !== undefined) {
       record.privacy_tier = patch.privacyTier;
       record.tier_changed_at = new Date().toISOString();

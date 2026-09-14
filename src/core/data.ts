@@ -512,13 +512,69 @@ export const CONTENT_BY_ID: Record<string, Content> = Object.fromEntries(
 
 /* ── Hot Takes (ephemeral, Home) ──────────────────────────────────────────── */
 
+const MIN = 60_000;
+
 export const HOT_TAKES: HotTake[] = [
-  { id: "h1", authorId: "dario", text: "Bike lanes painted next to parked cars are a dare, not infrastructure." },
-  { id: "h2", authorId: "elena", text: "Panettone is a winter food and August panettone is a scam." },
-  { id: "h3", authorId: "nkechi", text: "Live albums are better than studio albums and it isn't close." },
-  { id: "h4", authorId: "siv", text: "Subtitles on, always, in every language, including your own." },
-  { id: "h5", authorId: "tobia", text: "Homework should end at fourteen." },
-  { id: "h6", authorId: "yaz", text: "A gallery with a queue is doing something right." },
+  {
+    id: "h1",
+    authorId: "dario",
+    text: "Bike lanes painted next to parked cars are a dare, not infrastructure.",
+    category: "culture",
+    up: 41,
+    down: 30,
+    comments: 6,
+    createdAt: NOW - 20 * MIN,
+  },
+  {
+    id: "h2",
+    authorId: "elena",
+    text: "Panettone is a winter food and August panettone is a scam.",
+    category: "values",
+    up: 88,
+    down: 12,
+    comments: 14,
+    createdAt: NOW - 45 * MIN,
+  },
+  {
+    id: "h3",
+    authorId: "nkechi",
+    text: "Live albums are better than studio albums and it isn't close.",
+    category: "mind",
+    up: 63,
+    down: 41,
+    comments: 9,
+    createdAt: NOW - 1.5 * 60 * MIN,
+  },
+  {
+    id: "h4",
+    authorId: "siv",
+    text: "Subtitles on, always, in every language, including your own.",
+    category: "focus",
+    up: 120,
+    down: 18,
+    comments: 22,
+    createdAt: NOW - 3 * 60 * MIN,
+  },
+  {
+    id: "h5",
+    authorId: "tobia",
+    text: "Homework should end at fourteen.",
+    category: "soul",
+    up: 54,
+    down: 47,
+    comments: 11,
+    createdAt: NOW - 5 * 60 * MIN,
+  },
+  {
+    id: "h6",
+    authorId: "yaz",
+    text: "A gallery with a queue is doing something right.",
+    category: "culture",
+    up: 29,
+    down: 8,
+    comments: 3,
+    createdAt: NOW - 8 * 60 * MIN,
+  },
 ];
 
 /* ── Messages ─────────────────────────────────────────────────────────────── */

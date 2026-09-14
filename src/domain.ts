@@ -7,6 +7,7 @@ export type ProfileRow = {
   pronouns: string;
   bio: string;
   city: string;
+  avatarUrl?: string;
   privacyTier: PrivacyTier;
   /** Which grids this person lets others compare against (spec §4.4). */
   gridPublic: Record<GridId, boolean>;

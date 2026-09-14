@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { requireUser } from "./auth";
 import { config } from "./config";
 import { ApiError } from "./domain";
 
@@ -11,6 +12,11 @@ const credentials = z.object({
 });
 
 const refresh = z.object({ refreshToken: z.string().min(10) });
+
+const changePassword = z.object({
+  currentPassword: z.string().min(8).max(200),
+  newPassword: z.string().min(8).max(200),
+});
 
 const oauthQuery = z.object({ redirect: z.string().min(1).max(500) });
 
@@ -100,5 +106,31 @@ export function registerAuthRoutes(app: FastifyInstance) {
     const { data, error } = await auth().auth.refreshSession({ refresh_token: refreshToken });
     if (error) throw new ApiError(401, error.message);
     return toSession({ session: data.session, user: data.user });
+  });
+
+  /**
+   * Re-verifies the current password (a fresh access token alone proves the
+   * session is live, not that the caller still knows the password) before
+   * setting the new one via the admin API — the client never gets a key that
+   * could do this unchecked.
+   */
+  app.post("/auth/change-password", async (req) => {
+    const userId = await requireUser(req);
+    const { currentPassword, newPassword } = changePassword.parse(req.body);
+    const client = auth();
+
+    const { data: userData, error: userErr } = await client.auth.admin.getUserById(userId);
+    if (userErr || !userData.user?.email) throw new ApiError(400, "no email on this account");
+
+    const { error: verifyErr } = await client.auth.signInWithPassword({
+      email: userData.user.email,
+      password: currentPassword,
+    });
+    if (verifyErr) throw new ApiError(401, "current password is incorrect");
+
+    const { error: updateErr } = await client.auth.admin.updateUserById(userId, { password: newPassword });
+    if (updateErr) throw new ApiError(400, updateErr.message);
+
+    return { ok: true };
   });
 }
