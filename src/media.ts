@@ -30,6 +30,8 @@ export interface MediaStore {
   /** Confirms the object is actually there before a post is allowed to reference it. */
   exists(path: string): Promise<boolean>;
   publicUrl(path: string): string;
+  /** Right-to-be-forgotten: removes every object the user ever uploaded. */
+  deleteAll(userId: string): Promise<void>;
 }
 
 export function mimeKind(contentType: string): "image" | "video" {
@@ -81,6 +83,15 @@ export class SupabaseMediaStore implements MediaStore {
   publicUrl(path: string): string {
     return `${this.url}/storage/v1/object/public/${BUCKET}/${path}`;
   }
+
+  async deleteAll(userId: string): Promise<void> {
+    const prefix = `u/${userId}`;
+    const { data, error } = await this.db.storage.from(BUCKET).list(prefix, { limit: 1000 });
+    if (error || !data || data.length === 0) return;
+    const paths = data.map((entry) => `${prefix}/${entry.name}`);
+    const { error: removeError } = await this.db.storage.from(BUCKET).remove(paths);
+    if (removeError) throw new ApiError(502, `could not delete stored media: ${removeError.message}`);
+  }
 }
 
 /** In-memory mode has nowhere to put files; say so rather than pretending. */
@@ -94,4 +105,5 @@ export class NullMediaStore implements MediaStore {
   publicUrl(path: string): string {
     return path;
   }
+  async deleteAll(): Promise<void> {}
 }

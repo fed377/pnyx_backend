@@ -1,4 +1,4 @@
-import { GRID_IDS, nearestPoint } from "./grids";
+import { GRID_IDS, GRIDS, nearestPoint } from "./grids";
 import type { GridId, Point, Positions, Scores, Vote, VotePower } from "./types";
 
 /* ── Constants (spec §4.2 / §4.3) ─────────────────────────────────────────── */
@@ -144,9 +144,33 @@ export function totalAlignment(a: Positions, b: Positions): number {
 
 /* ── Identity ─────────────────────────────────────────────────────────────── */
 
-/** Shareable code: first two letters of each grid's named position. */
+/**
+ * How many leading letters of a grid's position names are needed before no two
+ * collide — spec §6.4 flags a fixed two-letter prefix as an unresolved collision
+ * risk (e.g. focus's "Burnt"/"Burgundy" both start "BU"), so this grows the
+ * prefix per grid until every name in it is distinguishable, instead of
+ * guessing a width that happens to work for today's name list.
+ */
+const codeLengthCache = new Map<GridId, number>();
+function codeLength(g: GridId): number {
+  const cached = codeLengthCache.get(g);
+  if (cached !== undefined) return cached;
+
+  const names = GRIDS[g].points.map((point) => point.name.toUpperCase());
+  const longest = Math.max(...names.map((n) => n.length));
+  let len = 2;
+  while (len < longest) {
+    const prefixes = names.map((n) => n.slice(0, len));
+    if (new Set(prefixes).size === prefixes.length) break;
+    len++;
+  }
+  codeLengthCache.set(g, len);
+  return len;
+}
+
+/** Shareable code: each grid's named position, truncated just enough to stay unique within that grid. */
 export function identityCode(p: Positions): string {
-  return GRID_IDS.map((g) => nearestPoint(g, p[g]).name.slice(0, 2).toUpperCase()).join("·");
+  return GRID_IDS.map((g) => nearestPoint(g, p[g]).name.slice(0, codeLength(g)).toUpperCase()).join("·");
 }
 
 /** Distance travelled from the origin, as a share of the maximum. */

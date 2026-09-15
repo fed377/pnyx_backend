@@ -528,8 +528,11 @@ export class PnyxService {
 
   /* ── GDPR ───────────────────────────────────────────────────────────────── */
 
-  /** Spec §6.5 / §9: Right to Be Forgotten. Removes the account and its history. */
+  /** Spec §6.5 / §9: Right to Be Forgotten. Removes the account, its history, and
+   * every file it ever uploaded — deleting only the DB rows left avatars and post
+   * media sitting in Storage forever. */
   async forgetMe(userId: string) {
+    await this.media.deleteAll(userId);
     await this.repo.deleteUser(userId);
   }
 }

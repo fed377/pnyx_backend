@@ -16,6 +16,7 @@ const auth = (id = ME) => ({ authorization: `Bearer dev:${id}` });
 /** Pretends every upload landed, and records what was asked for. */
 class FakeMediaStore implements MediaStore {
   readonly tickets: string[] = [];
+  readonly deletedUsers: string[] = [];
   async createUploadTicket(userId: string, contentType: string): Promise<UploadTicket> {
     this.tickets.push(`${userId}:${contentType}`);
     return {
@@ -30,6 +31,9 @@ class FakeMediaStore implements MediaStore {
   }
   publicUrl(path: string) {
     return `https://cdn.test/${path}`;
+  }
+  async deleteAll(userId: string) {
+    this.deletedUsers.push(userId);
   }
 }
 
@@ -189,7 +193,9 @@ describe("the unlock rule", () => {
     expect(last.voteCount).toBe(UNLOCK_AT);
     expect(last.unlocked).toBe(true);
     expect(last.identity).not.toBeNull();
-    expect(last.identity!.code).toMatch(/^[A-Z]{2}(·[A-Z]{2}){4}$/);
+    // Segment width varies per grid now — long enough to stay unique within
+    // that grid's own name list (see algorithm.ts's identityCode).
+    expect(last.identity!.code).toMatch(/^[A-Z]{2,}(·[A-Z]{2,}){4}$/);
   });
 });
 
@@ -586,6 +592,11 @@ describe("right to be forgotten", () => {
     expect(await repo.countVotes(ME)).toBe(0);
     const positions = await repo.getPositions(ME);
     expect(moved(positions.positions)).toBe(false);
+  });
+
+  it("deletes every uploaded file, not just the DB rows", async () => {
+    await service.forgetMe(ME);
+    expect(media.deletedUsers).toContain(ME);
   });
 });
 
