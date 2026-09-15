@@ -22,8 +22,9 @@ const oauthQuery = z.object({ redirect: z.string().min(1).max(500) });
 
 const googleToken = z.object({ idToken: z.string().min(10) });
 
-/** Deep links back into this app, plus Expo Go's dev URL. */
-const ALLOWED_REDIRECT = /^(pnyx:\/\/|exp:\/\/|exps:\/\/|https?:\/\/localhost([:/]|$))/;
+/** Deep links back into this app, plus Expo Go's dev URL — current Expo Go
+ * builds use `expo://`, older ones (and some tooling) still use `exp://`. */
+const ALLOWED_REDIRECT = /^(pnyx:\/\/|expo:\/\/|exp:\/\/|exps:\/\/|https?:\/\/localhost([:/]|$))/;
 
 type Session = {
   accessToken: string;

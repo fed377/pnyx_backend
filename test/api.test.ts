@@ -641,4 +641,22 @@ describe("http layer", () => {
     expect(items).toHaveLength(5);
     expect(items.every((i: { type: string }) => i.type === "video")).toBe(true);
   });
+
+  it("accepts both exp:// and expo:// as Google sign-in redirect targets", async () => {
+    // No Supabase config in this test environment, so a valid redirect gets
+    // past validation and fails later with 501 — that still proves the
+    // redirect itself wasn't what was rejected, which is what this checks.
+    for (const redirect of ["exp://192.168.1.5:8081/--/auth-callback", "expo://192.168.1.5:8081/--/auth-callback"]) {
+      const res = await app().inject({ method: "GET", url: `/auth/google/url?redirect=${encodeURIComponent(redirect)}` });
+      expect(res.statusCode).not.toBe(400);
+    }
+  });
+
+  it("rejects a redirect target outside the allowed schemes", async () => {
+    const res = await app().inject({
+      method: "GET",
+      url: `/auth/google/url?redirect=${encodeURIComponent("https://evil.example.com")}`,
+    });
+    expect(res.statusCode).toBe(400);
+  });
 });
