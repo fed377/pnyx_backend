@@ -158,17 +158,19 @@ The client signs in with `@supabase/supabase-js` and sends the resulting access 
 
 ## What is deliberately not real yet
 
-1. **The scorer is a placeholder.** `DeterministicScorer` hashes text into coordinates. It is
-   not a model and the positions it produces carry no meaning. It exists so the pipeline,
-   the movement equation and the recommender can be exercised end to end.
+1. **The scorer falls back to a placeholder if `GEMINI_API_KEY` is unset.** `GeminiScorer`
+   (`src/scoring/geminiScorer.ts`) is a real implementation on `@google/genai` — it both places a
+   post on the five grids and doubles as the moderation gate (spec §8), and `server.ts` wires it
+   up whenever a key is configured. Without one, `DeterministicScorer` hashes text into
+   coordinates instead: not a model, positions carry no meaning, logs a warning on boot but
+   doesn't refuse to start. Fine for local dev with nothing configured; not fit for real users.
 
-   Your spec (§13) calls real per-post AI cost the single most important unknown in the plan.
-   Implementing `ContentScorer` with a model and instrumenting tokens and dollars at that one
-   interface is the next thing worth doing, and nothing else has to change to do it.
-
-2. **Moderation has no route.** `service.moderate()` exists and the schema enforces that nothing
-   is votable until approved, but there's no admin role in the auth model yet, so it isn't
-   exposed. Everything posted sits at `pending`.
+2. **Moderation has no *manual* route yet.** The scorer call inside `createContent` already
+   *is* the moderation gate — it throws before insertion on `policy_violation`/`low_effort`, so
+   anything that reaches the DB has already been screened and is marked `approved` immediately.
+   `service.moderate()`/`setModerationStatus` exist for a future manual takedown/appeal surface
+   (there's no admin role in the auth model yet to expose it to), but ordinary posting no longer
+   depends on it.
 
 3. **`mostAligned` is linear** over the user base. Fine for a Varese-sized pilot, needs the
    `alignments` cache table (already in the schema) or a spatial index before a real population.
@@ -176,11 +178,18 @@ The client signs in with `@supabase/supabase-js` and sends the resulting access 
 4. **Tier changes aren't rate-limited.** Spec §6.5 says one change per period but leaves the
    period TBD; `profiles.tier_changed_at` is there to hold the rule once you pick a number.
 
-5. **No messages, notifications or Hot Takes endpoints.** The tables are in the schema; the
-   routes aren't written.
+5. **Messages, notifications and Hot Takes are real now**, not stubs — `POST/GET` routes exist
+   for all three (`routes.ts`) and the app reads live data for them in remote mode.
 
 6. **Alignment normalisation** uses distance over the grid maximum (2√2) rather than "normalised
    to each user's own vote-count scale" (§4.4), which isn't specified precisely enough to build.
+
+7. **No rate limiting beyond auth's own brute-force guard.** `@fastify/rate-limit` applies a
+   300 req/min default everywhere and a 10 req/min guard on signup/signin/google-token/
+   forgot-password — reasonable defaults, not tuned against real traffic.
+
+8. **Right to Be Forgotten now deletes uploaded media too** (`MediaStore.deleteAll`), not just
+   the DB rows — the Postgres `forget_me()` function only ever handled the latter.
 
 ## Tests
 
