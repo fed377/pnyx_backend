@@ -14,7 +14,9 @@ const credentials = z.object({
 const refresh = z.object({ refreshToken: z.string().min(10) });
 
 const changePassword = z.object({
-  currentPassword: z.string().min(8).max(200),
+  // Absent for an account with no password yet (a Google-only sign-up
+  // setting one for the first time) — present and required otherwise.
+  currentPassword: z.string().min(8).max(200).optional(),
   newPassword: z.string().min(8).max(200),
 });
 
@@ -177,10 +179,26 @@ export function registerAuthRoutes(app: FastifyInstance) {
   });
 
   /**
+   * Whether this account has a password at all. A Google-only sign-up has
+   * no password identity — Settings uses this to show "Set a password"
+   * (no current-password field) instead of "Change password".
+   */
+  app.get("/auth/password-status", async (req) => {
+    const userId = await requireUser(req);
+    const { data, error } = await auth().auth.admin.getUserById(userId);
+    if (error || !data.user) throw new ApiError(400, "no such account");
+    const hasPassword = (data.user.identities ?? []).some((i) => i.provider === "email");
+    return { hasPassword };
+  });
+
+  /**
    * Re-verifies the current password (a fresh access token alone proves the
    * session is live, not that the caller still knows the password) before
    * setting the new one via the admin API — the client never gets a key that
-   * could do this unchecked.
+   * could do this unchecked. The one exception is an account with no
+   * password yet (Google-only): there is nothing to verify, so
+   * currentPassword is neither required nor checked — /auth/password-status
+   * is what the client uses to know which form to show.
    */
   app.post("/auth/change-password", async (req) => {
     const userId = await requireUser(req);
@@ -190,11 +208,15 @@ export function registerAuthRoutes(app: FastifyInstance) {
     const { data: userData, error: userErr } = await client.auth.admin.getUserById(userId);
     if (userErr || !userData.user?.email) throw new ApiError(400, "no email on this account");
 
-    const { error: verifyErr } = await client.auth.signInWithPassword({
-      email: userData.user.email,
-      password: currentPassword,
-    });
-    if (verifyErr) throw new ApiError(401, "current password is incorrect");
+    const hasPassword = (userData.user.identities ?? []).some((i) => i.provider === "email");
+    if (hasPassword) {
+      if (!currentPassword) throw new ApiError(400, "current password is required");
+      const { error: verifyErr } = await client.auth.signInWithPassword({
+        email: userData.user.email,
+        password: currentPassword,
+      });
+      if (verifyErr) throw new ApiError(401, "current password is incorrect");
+    }
 
     const { error: updateErr } = await client.auth.admin.updateUserById(userId, { password: newPassword });
     if (updateErr) throw new ApiError(400, updateErr.message);
