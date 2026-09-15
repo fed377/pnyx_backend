@@ -17,9 +17,15 @@ export function buildServer(
   media: MediaStore = new NullMediaStore(),
   scorer: ContentScorer = new DeterministicScorer(),
 ) {
-  // Quiet under vitest: request logging dominates the cost of an inject() call.
   const app = Fastify({
+    // Quiet under vitest: request logging dominates the cost of an inject() call.
     logger: process.env.VITEST ? false : { level: process.env.LOG_LEVEL ?? "info" },
+    // Render (and most PaaS hosts) terminate TLS at the edge and forward
+    // plain HTTP internally — without this, req.protocol/req.hostname would
+    // report the internal "http" hop instead of what the client actually
+    // used, which the OAuth bridge page (authRoutes.ts) depends on to build
+    // its own callback URL correctly.
+    trustProxy: true,
   });
   const service = new PnyxService(repo, scorer, media);
   registerRoutes(app, service);

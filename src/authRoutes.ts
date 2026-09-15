@@ -98,10 +98,62 @@ export function registerAuthRoutes(app: FastifyInstance) {
     if (!config.supabaseUrl) {
       throw new ApiError(501, "auth needs STORE=supabase with Supabase keys configured");
     }
+    // Supabase's redirect_to validation is unreliable for custom app schemes
+    // (expo://, pnyx://) even when they're allowlisted — it silently falls
+    // back to the project's Site URL instead of erroring. So Supabase is
+    // told to come back to the bridge page below instead: a real https://
+    // URL on this same server (self-referential from the request itself,
+    // never client-supplied — see that route's own comment for why that
+    // matters), which hands off to the real deep link client-side.
+    const bridge = `${req.protocol}://${req.hostname}/auth/mobile-redirect?to=${encodeURIComponent(redirect)}`;
     const url =
       `${config.supabaseUrl}/auth/v1/authorize` +
-      `?provider=google&redirect_to=${encodeURIComponent(redirect)}`;
+      `?provider=google&redirect_to=${encodeURIComponent(bridge)}`;
     return { url };
+  });
+
+  /**
+   * A bridge page. Supabase's redirect_to validation is reliable for
+   * https:// targets but flaky for custom app schemes (expo://, pnyx://)
+   * even when they're correctly allowlisted — it silently falls back to the
+   * project's Site URL instead. So the app tells Supabase to come back
+   * *here* (an https:// URL, which Supabase honors) with the real deep
+   * link tucked into `to`, and this page's own script finishes the last
+   * hop client-side.
+   *
+   * This has to be a page with inline JS, not a server-side redirect:
+   * Supabase's session comes back in the URL *fragment*
+   * (`#access_token=...`), and fragments are never sent to a server — only
+   * client-side script can read one.
+   *
+   * `to` is re-validated against the exact same allowlist `/auth/google/url`
+   * uses, both here and in the page's own script. Without that this would
+   * be an open redirect that hands a real, just-issued session to whatever
+   * `to` says — anyone could craft their own link to this public endpoint.
+   */
+  app.get("/auth/mobile-redirect", async (req, reply) => {
+    const { to } = z.object({ to: z.string().min(1).max(500) }).parse(req.query);
+    if (!ALLOWED_REDIRECT.test(to)) {
+      throw new ApiError(400, "unsupported redirect target");
+    }
+    return reply.type("text/html").send(`<!doctype html>
+<title>Signing you in…</title>
+<body style="font: 16px -apple-system, sans-serif; padding: 2rem;">
+<p>Signing you in…</p>
+<script>
+  var to = ${JSON.stringify(to)};
+  // Re-checked here too: this script runs with whatever "to" is in the
+  // URL, which could differ from what the server above validated if
+  // someone reached this page with a hand-crafted link instead of one
+  // this API generated.
+  var allowed = /^(pnyx:\\/\\/|expo:\\/\\/|exp:\\/\\/|exps:\\/\\/)/;
+  if (allowed.test(to)) {
+    location.replace(to + location.hash);
+  } else {
+    document.body.textContent = "Could not complete sign-in.";
+  }
+</script>
+</body>`);
   });
 
   /**

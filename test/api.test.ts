@@ -659,4 +659,24 @@ describe("http layer", () => {
     });
     expect(res.statusCode).toBe(400);
   });
+
+  describe("the mobile OAuth bridge page", () => {
+    it("hands the deep link to the browser via a script, not a server-side redirect", async () => {
+      const to = "expo://192.168.1.5:8081/--/auth-callback";
+      const res = await app().inject({ method: "GET", url: `/auth/mobile-redirect?to=${encodeURIComponent(to)}` });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers["content-type"]).toMatch(/text\/html/);
+      expect(res.headers.location).toBeUndefined(); // never a 3xx — see the code comment on why
+      expect(res.body).toContain("location.replace(to + location.hash)");
+      expect(res.body).toContain(JSON.stringify(to));
+    });
+
+    it("refuses a target outside the allowed schemes — this is a public, unauthenticated endpoint", async () => {
+      const res = await app().inject({
+        method: "GET",
+        url: `/auth/mobile-redirect?to=${encodeURIComponent("https://evil.example.com/steal")}`,
+      });
+      expect(res.statusCode).toBe(400);
+    });
+  });
 });
