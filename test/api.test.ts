@@ -138,11 +138,19 @@ describe("the vote pipeline", () => {
     await expect(service.castVote(ME, mine.id, 1)).rejects.toMatchObject({ status: 403 });
   });
 
-  it("refuses a vote on content that has not cleared moderation", async () => {
+  it("approves content the AI scorer clears, immediately — that scoring call is the moderation gate", async () => {
     await service.updateProfile("mara", { privacyTier: "speaker" });
-    const pending = await post(service, "mara", "Every street needs one tree per house.", ["values"]);
-    expect(pending.moderationStatus).toBe("pending");
-    await expect(service.castVote(ME, pending.id, 1)).rejects.toMatchObject({ status: 403 });
+    const cleared = await post(service, "mara", "Every street needs one tree per house.", ["values"]);
+    expect(cleared.moderationStatus).toBe("approved");
+    // and it's actually votable, not stuck the way "pending" left it
+    await expect(service.castVote(ME, cleared.id, 1)).resolves.toBeDefined();
+  });
+
+  it("still refuses a vote on content moderated back off approved (a manual takedown, say)", async () => {
+    await service.updateProfile("mara", { privacyTier: "speaker" });
+    const content = await post(service, "mara", "Every street needs one tree per house.", ["values"]);
+    await service.moderate(content.id, "rejected");
+    await expect(service.castVote(ME, content.id, 1)).rejects.toMatchObject({ status: 403 });
   });
 
   it("refuses a vote on content that does not exist", async () => {
@@ -319,7 +327,6 @@ describe("your own reels", () => {
   it("appear in your feed, even though you cannot vote on them", async () => {
     await service.updateProfile(ME, { privacyTier: "speaker" });
     const mine = await post(service, ME, "A reel of my own making.", ["values"], "video");
-    await repo.setModerationStatus(mine.id, "approved");
 
     const reels = await service.reels(ME, 100);
     expect(reels.some((r) => r.id === mine.id)).toBe(true);
@@ -677,6 +684,39 @@ describe("http layer", () => {
         url: `/auth/mobile-redirect?to=${encodeURIComponent("https://evil.example.com/steal")}`,
       });
       expect(res.statusCode).toBe(400);
+    });
+  });
+
+  describe("password recovery", () => {
+    it("refuses a forgot-password redirect outside the allowed schemes", async () => {
+      const res = await app().inject({
+        method: "POST",
+        url: "/auth/forgot-password",
+        payload: { email: "someone@example.com", redirect: "https://evil.example.com" },
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it("responds the same way whether or not the email is registered — no user-enumeration leak", async () => {
+      const send = (email: string) =>
+        app().inject({
+          method: "POST",
+          url: "/auth/forgot-password",
+          payload: { email, redirect: "expo://192.168.1.5:8081/--/auth-callback" },
+        });
+      const known = await send("definitely-not-registered@example.com");
+      const unknown = await send("also-not-registered@example.com");
+      expect(known.statusCode).toBe(200);
+      expect(known.json()).toEqual(unknown.json());
+    });
+
+    it("refuses to set a new password without a valid session", async () => {
+      const res = await app().inject({
+        method: "POST",
+        url: "/auth/reset-password",
+        payload: { newPassword: "a-brand-new-password" },
+      });
+      expect(res.statusCode).toBe(401);
     });
   });
 });

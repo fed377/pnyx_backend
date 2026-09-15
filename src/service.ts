@@ -403,14 +403,24 @@ export class PnyxService {
       mediaUrl,
       scores: outcome.scores,
       scorer: this.scorer.name,
-      // Spec §8: everything user-generated goes through moderation before it is seen.
-      moderationStatus: "pending",
+      // Spec §8 lists "content moderation" as one of AI's four jobs, not a
+      // separate human-review phase — the scorer call above already is that
+      // gate: policy_violation and low_effort both throw before this point,
+      // so anything that reaches here has already been screened. Leaving
+      // this at "pending" left every post permanently invisible and
+      // unvotable (/home, /feed/reels and castVote all require "approved"),
+      // since moderate() below has no route to ever move it off "pending" —
+      // there's no admin role in the auth model to gate one behind.
+      moderationStatus: "approved",
     });
   }
 
   /**
-   * Moderation decision. Deliberately not wired to a public route yet: it needs
-   * an admin/moderator role, which the auth model does not have.
+   * A manual override on top of the AI gate above — takedowns, appeals, that
+   * kind of thing. Deliberately not wired to a public route yet: it needs an
+   * admin/moderator role, which the auth model does not have. Unlike the
+   * "pending" bug this replaces, AI-cleared content no longer depends on
+   * this existing to be usable at all.
    */
   async moderate(contentId: string, status: ContentRow["moderationStatus"]) {
     const content = await this.repo.getContent(contentId);

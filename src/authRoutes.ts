@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { requireUser } from "./auth";
 import { config } from "./config";
@@ -23,6 +23,13 @@ const changePassword = z.object({
 const oauthQuery = z.object({ redirect: z.string().min(1).max(500) });
 
 const googleToken = z.object({ idToken: z.string().min(10) });
+
+const forgotPassword = z.object({
+  email: z.string().email(),
+  redirect: z.string().min(1).max(500),
+});
+
+const resetPassword = z.object({ newPassword: z.string().min(8).max(200) });
 
 /** Deep links back into this app, plus Expo Go's dev URL — current Expo Go
  * builds use `expo://`, older ones (and some tooling) still use `exp://`. */
@@ -65,6 +72,17 @@ export function registerAuthRoutes(app: FastifyInstance) {
     };
   };
 
+  /**
+   * Wraps a client deep link in the same-origin https bridge (see
+   * /auth/mobile-redirect below) that every Supabase email/redirect flow in
+   * this file goes through — Supabase's redirect_to validation is unreliable
+   * for custom app schemes even when correctly allowlisted, silently falling
+   * back to the project's Site URL instead of erroring. `req`-derived, never
+   * client-supplied, so this can't become an open redirect.
+   */
+  const bridgeFor = (req: FastifyRequest, redirect: string) =>
+    `${req.protocol}://${req.hostname}/auth/mobile-redirect?to=${encodeURIComponent(redirect)}`;
+
   app.post("/auth/signup", async (req, reply) => {
     const { email, password, name } = credentials.parse(req.body);
     const { data, error } = await auth().auth.signUp({
@@ -100,17 +118,9 @@ export function registerAuthRoutes(app: FastifyInstance) {
     if (!config.supabaseUrl) {
       throw new ApiError(501, "auth needs STORE=supabase with Supabase keys configured");
     }
-    // Supabase's redirect_to validation is unreliable for custom app schemes
-    // (expo://, pnyx://) even when they're allowlisted — it silently falls
-    // back to the project's Site URL instead of erroring. So Supabase is
-    // told to come back to the bridge page below instead: a real https://
-    // URL on this same server (self-referential from the request itself,
-    // never client-supplied — see that route's own comment for why that
-    // matters), which hands off to the real deep link client-side.
-    const bridge = `${req.protocol}://${req.hostname}/auth/mobile-redirect?to=${encodeURIComponent(redirect)}`;
     const url =
       `${config.supabaseUrl}/auth/v1/authorize` +
-      `?provider=google&redirect_to=${encodeURIComponent(bridge)}`;
+      `?provider=google&redirect_to=${encodeURIComponent(bridgeFor(req, redirect))}`;
     return { url };
   });
 
@@ -176,6 +186,40 @@ export function registerAuthRoutes(app: FastifyInstance) {
     const { data, error } = await auth().auth.refreshSession({ refresh_token: refreshToken });
     if (error) throw new ApiError(401, error.message);
     return toSession({ session: data.session, user: data.user });
+  });
+
+  /**
+   * Emails a recovery link (Supabase's own, routed through the same bridge
+   * page every deep-link flow in this file uses). Always returns the same
+   * response regardless of whether the email is actually registered — this
+   * is a public, unauthenticated endpoint, and confirming an email's
+   * existence here would be a user-enumeration leak.
+   */
+  app.post("/auth/forgot-password", async (req) => {
+    const { email, redirect } = forgotPassword.parse(req.body);
+    if (!ALLOWED_REDIRECT.test(redirect)) {
+      throw new ApiError(400, "unsupported redirect target");
+    }
+    if (config.supabaseUrl) {
+      await auth().auth.resetPasswordForEmail(email, { redirectTo: bridgeFor(req, redirect) });
+    }
+    return { ok: true };
+  });
+
+  /**
+   * Sets a new password from a recovery link. Authenticated by the recovery
+   * session's own access token (requireUser accepts it like any other valid
+   * token) rather than a current-password check — clicking a link only
+   * Supabase emailed to the account's real address already proves ownership,
+   * which is the whole point of this flow existing for someone who can't
+   * sign in to reach /auth/change-password in the first place.
+   */
+  app.post("/auth/reset-password", async (req) => {
+    const userId = await requireUser(req);
+    const { newPassword } = resetPassword.parse(req.body);
+    const { error } = await auth().auth.admin.updateUserById(userId, { password: newPassword });
+    if (error) throw new ApiError(400, error.message);
+    return { ok: true };
   });
 
   /**
