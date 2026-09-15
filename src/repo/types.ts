@@ -1,5 +1,15 @@
-import type { Positions, VotePower } from "../core/types";
-import type { ContentRow, PositionsRow, ProfileRow, VoteRow } from "../domain";
+import type { GridId, Positions, VotePower } from "../core/types";
+import type {
+  CommentRow,
+  ContentRow,
+  ConversationRow,
+  HotTakeRow,
+  MessageRow,
+  NotificationRow,
+  PositionsRow,
+  ProfileRow,
+  VoteRow,
+} from "../domain";
 
 export type ContentFilter = {
   type?: ContentRow["type"];
@@ -47,4 +57,44 @@ export interface Repository {
   /* moderation */
   /** Logs a content-moderation strike against a user and returns their new total. */
   recordStrike(userId: string, reason: string): Promise<number>;
+
+  /* comments */
+  listComments(contentId: string, viewerId: string): Promise<CommentRow[]>;
+  getComment(id: string): Promise<{ id: string; contentId: string; authorId: string } | null>;
+  insertComment(input: { contentId: string; authorId: string; body: string }): Promise<CommentRow>;
+  /** Toggles off if `power` matches the viewer's existing vote, otherwise sets/switches it. */
+  voteComment(
+    commentId: string,
+    userId: string,
+    power: 1 | -1,
+  ): Promise<{ up: number; down: number; myVote: 1 | -1 | null }>;
+
+  /* notifications */
+  listNotifications(userId: string, limit: number): Promise<NotificationRow[]>;
+  insertNotification(input: Omit<NotificationRow, "id" | "createdAt" | "readAt">): Promise<NotificationRow>;
+
+  /* alignment cache (spec §7) — also doubles as "was this pair already above
+   * the threshold" state for the alignment-crossing notification. */
+  getAlignmentCache(userA: string, userB: string): Promise<number | null>;
+  setAlignmentCache(
+    userA: string,
+    userB: string,
+    perGrid: Record<GridId, number>,
+    totalPct: number,
+  ): Promise<void>;
+
+  /* messages (spec §6.7) */
+  listConversations(userId: string): Promise<ConversationRow[]>;
+  getConversation(id: string): Promise<ConversationRow | null>;
+  /** Normalizes (userA, userB) order itself — the table requires user_a < user_b. */
+  getOrCreateConversation(userA: string, userB: string): Promise<ConversationRow>;
+  listMessages(conversationId: string): Promise<MessageRow[]>;
+  /** The newest message per conversation, for a conversation-list preview. */
+  listLastMessages(conversationIds: string[]): Promise<Record<string, MessageRow>>;
+  insertMessage(input: Omit<MessageRow, "id" | "createdAt">): Promise<MessageRow>;
+
+  /* hot takes */
+  /** Not-yet-expired takes, newest first. */
+  listActiveHotTakes(limit: number): Promise<HotTakeRow[]>;
+  insertHotTake(input: { authorId: string; category: GridId; body: string }): Promise<HotTakeRow>;
 }

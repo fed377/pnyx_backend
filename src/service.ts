@@ -46,6 +46,11 @@ function summarise(positions: Positions, unlocked: boolean): IdentitySummary | n
   return { code: identityCode(positions), conviction: conviction(positions), grids };
 }
 
+/** Spec §6.4-ish: once two people cross this, it's worth telling them. */
+const ALIGNMENT_NOTIFY_THRESHOLD = 70;
+
+const voteVerb = (power: VotePower) => (power === 2 ? "loved" : power === 1 ? "liked" : power === -1 ? "disliked" : "hated");
+
 export class PnyxService {
   constructor(
     private readonly repo: Repository,
@@ -106,6 +111,14 @@ export class PnyxService {
     ]);
     const unlocked = voteCount >= UNLOCK_AT;
 
+    // Awaited so the caller can rely on it having happened (and tests can
+    // assert on it deterministically), but caught so a notification problem
+    // never turns into a failed vote.
+    await Promise.all([
+      this.notify(content.authorId, { actorId: userId, kind: "vote", body: `${voteVerb(power)} your take.`, contentId }).catch(() => {}),
+      this.checkAlignmentCrossings(userId, positions).catch(() => {}),
+    ]);
+
     return {
       positions,
       voteCount,
@@ -117,6 +130,52 @@ export class PnyxService {
       // split so the client can show an accurate count without refetching.
       tallies: updated?.tallies ?? content.tallies,
     };
+  }
+
+  /* ── Notifications ──────────────────────────────────────────────────────── */
+
+  private async notify(userId: string, input: { actorId?: string; kind: string; body: string; contentId?: string; pct?: number }) {
+    // Never notify someone about their own action.
+    if (input.actorId === userId) return;
+    await this.repo.insertNotification({ userId, ...input });
+  }
+
+  async listNotifications(userId: string, limit = 50) {
+    return this.repo.listNotifications(userId, limit);
+  }
+
+  /**
+   * After a vote moves the voter's position, alignment with everyone they
+   * follow or are followed by may have shifted too — worth telling both
+   * sides the first time a pair crosses the threshold. Bounded to that
+   * neighbor set (not the whole user base) for the same reason `mostAligned`
+   * is: fine at pilot scale, not something to run against every user on
+   * every vote. Best-effort: never let this delay or fail the vote itself.
+   */
+  private async checkAlignmentCrossings(userId: string, positions: Positions) {
+    const [following, followers] = await Promise.all([
+      this.repo.listFollowing(userId),
+      this.repo.listFollowers(userId),
+    ]);
+    const neighbors = [...new Set([...following, ...followers])];
+    if (neighbors.length === 0) return;
+
+    const rows = await this.repo.listPositions(neighbors);
+    for (const row of rows) {
+      const total = totalAlignment(positions, row.positions);
+      const perGrid = perGridAlignment(positions, row.positions);
+      const previous = await this.repo.getAlignmentCache(userId, row.userId);
+      await this.repo.setAlignmentCache(userId, row.userId, perGrid, total);
+
+      const justCrossed = (previous === null || previous < ALIGNMENT_NOTIFY_THRESHOLD) && total >= ALIGNMENT_NOTIFY_THRESHOLD;
+      if (!justCrossed) continue;
+      const pct = Math.round(total);
+      const body = `are now ${pct}% aligned.`;
+      await Promise.all([
+        this.notify(userId, { actorId: row.userId, kind: "alignment", body, pct }),
+        this.notify(row.userId, { actorId: userId, kind: "alignment", body, pct }),
+      ]);
+    }
   }
 
   /* ── Profiles and alignment ─────────────────────────────────────────────── */
@@ -231,6 +290,9 @@ export class PnyxService {
     const target = await this.repo.getProfile(followeeId);
     if (!target) throw new ApiError(404, "no such profile");
     await this.repo.setFollow(followerId, followeeId, following);
+    if (following) {
+      await this.notify(followeeId, { actorId: followerId, kind: "follow", body: "started following you." });
+    }
   }
 
   /* ── Feeds ──────────────────────────────────────────────────────────────── */
@@ -354,6 +416,104 @@ export class PnyxService {
     const content = await this.repo.getContent(contentId);
     if (!content) throw new ApiError(404, "no such content");
     await this.repo.setModerationStatus(contentId, status);
+  }
+
+  /* ── Comments (spec §5: comments are votable too) ──────────────────────────── */
+
+  async listComments(userId: string, contentId: string) {
+    const content = await this.repo.getContent(contentId);
+    if (!content) throw new ApiError(404, "no such content");
+    return this.repo.listComments(contentId, userId);
+  }
+
+  async addComment(userId: string, contentId: string, body: string) {
+    const content = await this.repo.getContent(contentId);
+    if (!content) throw new ApiError(404, "no such content");
+    if (content.moderationStatus !== "approved" && content.authorId !== userId) {
+      throw new ApiError(403, "content is not available for comments");
+    }
+    const comment = await this.repo.insertComment({ contentId, authorId: userId, body });
+    const preview = body.length > 80 ? `${body.slice(0, 77)}...` : body;
+    await this.notify(content.authorId, { actorId: userId, kind: "reply", body: `replied: "${preview}"`, contentId });
+    return comment;
+  }
+
+  async voteComment(userId: string, commentId: string, power: 1 | -1) {
+    const comment = await this.repo.getComment(commentId);
+    if (!comment) throw new ApiError(404, "no such comment");
+    return this.repo.voteComment(commentId, userId, power);
+  }
+
+  /* ── Messages (spec §6.7) ────────────────────────────────────────────────── */
+
+  /** One row per conversation, newest activity first, with a last-message preview. */
+  async listConversations(userId: string) {
+    const convos = await this.repo.listConversations(userId);
+    const last = await this.repo.listLastMessages(convos.map((c) => c.id));
+    return convos
+      .map((c) => ({
+        id: c.id,
+        otherUserId: c.userA === userId ? c.userB : c.userA,
+        createdAt: c.createdAt,
+        lastMessage: last[c.id] ?? null,
+      }))
+      .sort((a, b) => (b.lastMessage?.createdAt ?? b.createdAt).localeCompare(a.lastMessage?.createdAt ?? a.createdAt));
+  }
+
+  /** Opens (or starts) the 1:1 thread with `otherUserId` and returns its history. */
+  async openConversation(userId: string, otherUserId: string) {
+    if (userId === otherUserId) throw new ApiError(400, "you cannot message yourself");
+    const other = await this.repo.getProfile(otherUserId);
+    if (!other) throw new ApiError(404, "no such profile");
+    const convo = await this.repo.getOrCreateConversation(userId, otherUserId);
+    const messages = await this.repo.listMessages(convo.id);
+    return { conversationId: convo.id, otherUserId, messages };
+  }
+
+  private async requireParticipant(userId: string, conversationId: string) {
+    const convo = await this.repo.getConversation(conversationId);
+    if (!convo || (convo.userA !== userId && convo.userB !== userId)) {
+      throw new ApiError(404, "no such conversation");
+    }
+    return convo;
+  }
+
+  async listMessages(userId: string, conversationId: string) {
+    await this.requireParticipant(userId, conversationId);
+    return this.repo.listMessages(conversationId);
+  }
+
+  async sendMessage(
+    userId: string,
+    conversationId: string,
+    input: { body?: string; contentId?: string; votePower?: VotePower },
+  ) {
+    if (!input.body && !input.contentId) throw new ApiError(400, "a message needs text or a forwarded post");
+    await this.requireParticipant(userId, conversationId);
+    if (input.contentId && !(await this.repo.getContent(input.contentId))) {
+      throw new ApiError(404, "no such content to forward");
+    }
+    return this.repo.insertMessage({
+      conversationId,
+      senderId: userId,
+      body: input.body,
+      contentId: input.contentId,
+      voteSnapshot: input.contentId ? input.votePower : undefined,
+    });
+  }
+
+  /* ── Hot takes ───────────────────────────────────────────────────────────── */
+
+  async hotTakes(limit = 30) {
+    return this.repo.listActiveHotTakes(limit);
+  }
+
+  /** Same posting gate as regular content — spec §5/§6.8: only Speakers post. */
+  async postHotTake(userId: string, category: GridId, body: string) {
+    const profile = await this.repo.getProfile(userId);
+    if (!profile) throw new ApiError(404, "no such profile");
+    if (profile.privacyTier !== "speaker") throw new ApiError(403, "only Speakers can post");
+    return this.repo.insertHotTake({ authorId: userId, category, body });
   }
 
   /* ── GDPR ───────────────────────────────────────────────────────────────── */

@@ -53,6 +53,62 @@ export type VoteRow = {
   createdAt: string;
 };
 
+export type CommentRow = {
+  id: string;
+  contentId: string;
+  authorId: string;
+  body: string;
+  createdAt: string;
+  up: number;
+  down: number;
+  /** This viewer's own agree/disagree, if they've cast one. */
+  myVote: 1 | -1 | null;
+};
+
+export type HotTakeRow = {
+  id: string;
+  authorId: string;
+  category: GridId;
+  body: string;
+  up: number;
+  down: number;
+  comments: number;
+  createdAt: string;
+  expiresAt: string;
+};
+
+export type ConversationRow = {
+  id: string;
+  userA: string;
+  userB: string;
+  createdAt: string;
+};
+
+export type MessageRow = {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  body?: string;
+  /** A forwarded post, and the sender's own vote on it at forward time. */
+  contentId?: string;
+  voteSnapshot?: VotePower;
+  createdAt: string;
+};
+
+export type NotificationRow = {
+  id: string;
+  userId: string;
+  actorId?: string;
+  kind: string;
+  /** Pre-rendered suffix — the client prepends the actor's name itself. */
+  body: string;
+  contentId?: string;
+  /** "alignment" only. */
+  pct?: number;
+  readAt?: string;
+  createdAt: string;
+};
+
 export const bucketOf = (power: VotePower): keyof Tallies =>
   power === 2 ? "love" : power === 1 ? "like" : power === -1 ? "dislike" : "hate";
 

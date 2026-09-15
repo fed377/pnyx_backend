@@ -20,6 +20,8 @@ const changePassword = z.object({
 
 const oauthQuery = z.object({ redirect: z.string().min(1).max(500) });
 
+const googleToken = z.object({ idToken: z.string().min(10) });
+
 /** Deep links back into this app, plus Expo Go's dev URL. */
 const ALLOWED_REDIRECT = /^(pnyx:\/\/|exp:\/\/|exps:\/\/|https?:\/\/localhost([:/]|$))/;
 
@@ -99,6 +101,19 @@ export function registerAuthRoutes(app: FastifyInstance) {
       `${config.supabaseUrl}/auth/v1/authorize` +
       `?provider=google&redirect_to=${encodeURIComponent(redirect)}`;
     return { url };
+  });
+
+  /**
+   * The native path: the app runs the system Google account picker itself
+   * (via @react-native-google-signin) and hands us the resulting Google ID
+   * token — no browser, no redirect_to allowlist to maintain. Supabase
+   * verifies the token against Google directly.
+   */
+  app.post("/auth/google/token", async (req) => {
+    const { idToken } = googleToken.parse(req.body);
+    const { data, error } = await auth().auth.signInWithIdToken({ provider: "google", token: idToken });
+    if (error) throw new ApiError(401, error.message);
+    return toSession({ session: data.session, user: data.user });
   });
 
   app.post("/auth/refresh", async (req) => {

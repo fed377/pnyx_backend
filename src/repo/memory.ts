@@ -1,8 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { ORIGIN } from "../core/algorithm";
 import { ALL_CONTENT, ME_DEFAULTS, ME_ID, PEOPLE } from "../core/data";
-import type { Positions } from "../core/types";
-import type { ContentRow, PositionsRow, ProfileRow, VoteRow } from "../domain";
+import type { GridId, Positions } from "../core/types";
+import type {
+  CommentRow,
+  ContentRow,
+  ConversationRow,
+  HotTakeRow,
+  MessageRow,
+  NotificationRow,
+  PositionsRow,
+  ProfileRow,
+  VoteRow,
+} from "../domain";
 import type { ContentFilter, NewContent, Repository } from "./types";
 
 /**
@@ -17,6 +27,13 @@ export class MemoryRepository implements Repository {
   private votes = new Map<string, VoteRow>(); // `${userId}:${contentId}`
   private follows = new Set<string>(); // `${follower}:${followee}`
   private strikes = new Map<string, number>();
+  private comments = new Map<string, CommentRow>();
+  private commentVotes = new Map<string, 1 | -1>(); // `${commentId}:${userId}`
+  private notifications = new Map<string, NotificationRow>();
+  private alignmentCache = new Map<string, number>(); // `${a}:${b}`, a<b
+  private conversations = new Map<string, ConversationRow>();
+  private messages = new Map<string, MessageRow>();
+  private hotTakes = new Map<string, HotTakeRow>();
 
   constructor() {
     this.seed();
@@ -214,12 +231,157 @@ export class MemoryRepository implements Repository {
       if (k.startsWith(`${userId}:`) || k.endsWith(`:${userId}`)) this.follows.delete(k);
     }
     this.strikes.delete(userId);
+    for (const [k, v] of this.comments) if (v.authorId === userId) this.comments.delete(k);
+    for (const k of this.commentVotes.keys()) if (k.endsWith(`:${userId}`)) this.commentVotes.delete(k);
+    for (const [k, v] of this.notifications) {
+      if (v.userId === userId || v.actorId === userId) this.notifications.delete(k);
+    }
+    for (const k of this.alignmentCache.keys()) if (k.includes(userId)) this.alignmentCache.delete(k);
+    for (const [k, v] of this.conversations) if (v.userA === userId || v.userB === userId) this.conversations.delete(k);
+    for (const [k, v] of this.messages) if (v.senderId === userId) this.messages.delete(k);
+    for (const [k, v] of this.hotTakes) if (v.authorId === userId) this.hotTakes.delete(k);
   }
 
   async recordStrike(userId: string, _reason: string) {
     const next = (this.strikes.get(userId) ?? 0) + 1;
     this.strikes.set(userId, next);
     return next;
+  }
+
+  private tallyComment(commentId: string, viewerId: string) {
+    let up = 0;
+    let down = 0;
+    let myVote: 1 | -1 | null = null;
+    for (const [key, power] of this.commentVotes) {
+      const [cid, uid] = key.split(":");
+      if (cid !== commentId) continue;
+      if (power === 1) up++;
+      else down++;
+      if (uid === viewerId) myVote = power;
+    }
+    return { up, down, myVote };
+  }
+
+  async listComments(contentId: string, viewerId: string) {
+    return [...this.comments.values()]
+      .filter((c) => c.contentId === contentId)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .map((c) => ({ ...c, ...this.tallyComment(c.id, viewerId) }));
+  }
+
+  async getComment(id: string) {
+    const row = this.comments.get(id);
+    return row ? { id: row.id, contentId: row.contentId, authorId: row.authorId } : null;
+  }
+
+  async insertComment(input: { contentId: string; authorId: string; body: string }) {
+    const row: CommentRow = {
+      id: randomUUID(),
+      contentId: input.contentId,
+      authorId: input.authorId,
+      body: input.body,
+      createdAt: new Date().toISOString(),
+      up: 0,
+      down: 0,
+      myVote: null,
+    };
+    this.comments.set(row.id, row);
+    return row;
+  }
+
+  async voteComment(commentId: string, userId: string, power: 1 | -1) {
+    const key = `${commentId}:${userId}`;
+    const existing = this.commentVotes.get(key);
+    const toggleOff = existing === power;
+    if (toggleOff) this.commentVotes.delete(key);
+    else this.commentVotes.set(key, power);
+
+    const { up, down } = this.tallyComment(commentId, userId);
+    return { up, down, myVote: toggleOff ? null : power };
+  }
+
+  async listNotifications(userId: string, limit: number) {
+    return [...this.notifications.values()]
+      .filter((n) => n.userId === userId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, limit);
+  }
+
+  async insertNotification(input: Omit<NotificationRow, "id" | "createdAt" | "readAt">) {
+    const row: NotificationRow = { ...input, id: randomUUID(), createdAt: new Date().toISOString() };
+    this.notifications.set(row.id, row);
+    return row;
+  }
+
+  async getAlignmentCache(userA: string, userB: string) {
+    const [a, b] = userA < userB ? [userA, userB] : [userB, userA];
+    return this.alignmentCache.get(`${a}:${b}`) ?? null;
+  }
+
+  async setAlignmentCache(userA: string, userB: string, _perGrid: Record<GridId, number>, totalPct: number) {
+    const [a, b] = userA < userB ? [userA, userB] : [userB, userA];
+    this.alignmentCache.set(`${a}:${b}`, totalPct);
+  }
+
+  async listConversations(userId: string) {
+    return [...this.conversations.values()].filter((c) => c.userA === userId || c.userB === userId);
+  }
+
+  async getConversation(id: string) {
+    return this.conversations.get(id) ?? null;
+  }
+
+  async getOrCreateConversation(userA: string, userB: string) {
+    const [a, b] = userA < userB ? [userA, userB] : [userB, userA];
+    const existing = [...this.conversations.values()].find((c) => c.userA === a && c.userB === b);
+    if (existing) return existing;
+    const row: ConversationRow = { id: randomUUID(), userA: a, userB: b, createdAt: new Date().toISOString() };
+    this.conversations.set(row.id, row);
+    return row;
+  }
+
+  async listMessages(conversationId: string) {
+    return [...this.messages.values()]
+      .filter((m) => m.conversationId === conversationId)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
+  async listLastMessages(conversationIds: string[]) {
+    const ids = new Set(conversationIds);
+    const out: Record<string, MessageRow> = {};
+    for (const m of [...this.messages.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt))) {
+      if (ids.has(m.conversationId) && !out[m.conversationId]) out[m.conversationId] = m;
+    }
+    return out;
+  }
+
+  async insertMessage(input: Omit<MessageRow, "id" | "createdAt">) {
+    const row: MessageRow = { ...input, id: randomUUID(), createdAt: new Date().toISOString() };
+    this.messages.set(row.id, row);
+    return row;
+  }
+
+  async listActiveHotTakes(limit: number) {
+    const now = new Date().toISOString();
+    return [...this.hotTakes.values()]
+      .filter((t) => t.expiresAt > now)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, limit);
+  }
+
+  async insertHotTake(input: { authorId: string; category: GridId; body: string }) {
+    const now = Date.now();
+    const row: HotTakeRow = {
+      ...input,
+      id: randomUUID(),
+      up: 0,
+      down: 0,
+      comments: 0,
+      createdAt: new Date(now).toISOString(),
+      expiresAt: new Date(now + 14 * 3_600_000).toISOString(),
+    };
+    this.hotTakes.set(row.id, row);
+    return row;
   }
 }
 

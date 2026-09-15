@@ -47,6 +47,21 @@ const newContent = z.object({
 
 const uploadRequest = z.object({ contentType: z.string().min(3).max(100) });
 
+const newComment = z.object({ body: z.string().min(1).max(500) });
+const commentVote = z.object({ power: z.union([z.literal(1), z.literal(-1)]) });
+
+const newHotTake = z.object({ category: gridId, body: z.string().min(1).max(220) });
+
+const newMessage = z
+  .object({
+    body: z.string().min(1).max(2000).optional(),
+    contentId: z.string().min(1).optional(),
+    votePower: votePower.optional(),
+  })
+  .refine((v) => v.body !== undefined || v.contentId !== undefined, {
+    message: "a message needs text or a forwarded post",
+  });
+
 export function registerRoutes(app: FastifyInstance, service: PnyxService) {
   app.get("/health", async () => ({ ok: true, unlockAt: UNLOCK_AT }));
 
@@ -138,6 +153,80 @@ export function registerRoutes(app: FastifyInstance, service: PnyxService) {
     const input = newContent.parse(req.body);
     const row = await service.createContent(userId, input);
     return reply.code(201).send(row);
+  });
+
+  /* ── Messages ─────────────────────────────────────────────────────────── */
+
+  app.get("/conversations", async (req) => {
+    const userId = await requireUser(req);
+    return { items: await service.listConversations(userId) };
+  });
+
+  /** Opens (or starts) the 1:1 thread with `:id` and returns its history. */
+  app.get("/conversations/with/:id", async (req) => {
+    const userId = await requireUser(req);
+    const { id } = z.object({ id: z.string().min(1) }).parse(req.params);
+    return service.openConversation(userId, id);
+  });
+
+  app.get("/conversations/:id/messages", async (req) => {
+    const userId = await requireUser(req);
+    const { id } = z.object({ id: z.string().min(1) }).parse(req.params);
+    return { items: await service.listMessages(userId, id) };
+  });
+
+  app.post("/conversations/:id/messages", async (req, reply) => {
+    const userId = await requireUser(req);
+    const { id } = z.object({ id: z.string().min(1) }).parse(req.params);
+    const input = newMessage.parse(req.body);
+    const message = await service.sendMessage(userId, id, input);
+    return reply.code(201).send(message);
+  });
+
+  /* ── Hot takes ────────────────────────────────────────────────────────── */
+
+  app.get("/hot-takes", async (req) => {
+    await requireUser(req);
+    const { limit } = z.object({ limit: z.coerce.number().min(1).max(100).default(30) }).parse(req.query);
+    return { items: await service.hotTakes(limit) };
+  });
+
+  app.post("/hot-takes", async (req, reply) => {
+    const userId = await requireUser(req);
+    const { category, body } = newHotTake.parse(req.body);
+    const take = await service.postHotTake(userId, category, body);
+    return reply.code(201).send(take);
+  });
+
+  /* ── Notifications ────────────────────────────────────────────────────── */
+
+  app.get("/notifications", async (req) => {
+    const userId = await requireUser(req);
+    const { limit } = z.object({ limit: z.coerce.number().min(1).max(100).default(50) }).parse(req.query);
+    return { items: await service.listNotifications(userId, limit) };
+  });
+
+  /* ── Comments ─────────────────────────────────────────────────────────── */
+
+  app.get("/content/:id/comments", async (req) => {
+    const userId = await requireUser(req);
+    const { id } = z.object({ id: z.string().min(1) }).parse(req.params);
+    return { items: await service.listComments(userId, id) };
+  });
+
+  app.post("/content/:id/comments", async (req, reply) => {
+    const userId = await requireUser(req);
+    const { id } = z.object({ id: z.string().min(1) }).parse(req.params);
+    const { body } = newComment.parse(req.body);
+    const comment = await service.addComment(userId, id, body);
+    return reply.code(201).send(comment);
+  });
+
+  app.post("/comments/:id/vote", async (req) => {
+    const userId = await requireUser(req);
+    const { id } = z.object({ id: z.string().min(1) }).parse(req.params);
+    const { power } = commentVote.parse(req.body);
+    return service.voteComment(userId, id, power);
   });
 
   app.setErrorHandler((err, _req, reply) => {

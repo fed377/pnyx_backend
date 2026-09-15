@@ -380,6 +380,190 @@ describe("uploads", () => {
   });
 });
 
+describe("comments", () => {
+  it("lets a signed-in user add a comment and read it back", async () => {
+    const comment = await service.addComment(ME, "c01", "Rent is a made-up problem.");
+    expect(comment.contentId).toBe("c01");
+    expect(comment.authorId).toBe(ME);
+    expect(comment.up).toBe(0);
+    expect(comment.down).toBe(0);
+    expect(comment.myVote).toBeNull();
+
+    const items = await service.listComments(ME, "c01");
+    expect(items.map((c) => c.id)).toContain(comment.id);
+  });
+
+  it("refuses a comment on content that doesn't exist", async () => {
+    await expect(service.addComment(ME, "does-not-exist", "hi")).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("tallies agree/disagree as real per-user votes, changeable and toggle-off-able", async () => {
+    const comment = await service.addComment("mara", "c01", "A fair take.");
+
+    const agreed = await service.voteComment(ME, comment.id, 1);
+    expect(agreed).toEqual({ up: 1, down: 0, myVote: 1 });
+
+    // switching direction moves the vote, it doesn't stack a second one
+    const switched = await service.voteComment(ME, comment.id, -1);
+    expect(switched).toEqual({ up: 0, down: 1, myVote: -1 });
+
+    // casting the same direction again toggles it off
+    const toggledOff = await service.voteComment(ME, comment.id, -1);
+    expect(toggledOff).toEqual({ up: 0, down: 0, myVote: null });
+  });
+
+  it("keeps one person's repeated taps from inflating the tally", async () => {
+    const comment = await service.addComment("mara", "c01", "Spam-clickable, in theory.");
+    await service.voteComment(ME, comment.id, 1);
+    await service.voteComment(ME, comment.id, 1); // toggles off
+    await service.voteComment(ME, comment.id, 1); // back on
+    const items = await service.listComments(ME, "c01");
+    expect(items.find((c) => c.id === comment.id)?.up).toBe(1);
+  });
+
+  it("refuses voting on a comment that doesn't exist", async () => {
+    await expect(service.voteComment(ME, "does-not-exist", 1)).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+describe("notifications", () => {
+  it("notifies the followee, not on unfollow", async () => {
+    await service.setFollow(ME, "mara", true);
+    const items = await service.listNotifications("mara", 10);
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ kind: "follow", actorId: ME, userId: "mara" });
+
+    await service.setFollow(ME, "mara", false);
+    expect(await service.listNotifications("mara", 10)).toHaveLength(1); // still just the one
+  });
+
+  it("notifies the content author when someone votes on their post", async () => {
+    const content = (await repo.getContent("c01"))!;
+    await service.castVote(ME, "c01", 2);
+    const items = await service.listNotifications(content.authorId, 10);
+    expect(items[0]).toMatchObject({ kind: "vote", actorId: ME, contentId: "c01", body: "loved your take." });
+  });
+
+  it("notifies the content author on a reply, not on your own comment", async () => {
+    const content = (await repo.getContent("c01"))!;
+    await service.addComment(ME, "c01", "Strongly agree.");
+    const items = await service.listNotifications(content.authorId, 10);
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ kind: "reply", actorId: ME, contentId: "c01" });
+
+    // the author replying to their own post notifies no one
+    await service.addComment(content.authorId, "c01", "Adding on to my own point.");
+    expect(await service.listNotifications(content.authorId, 10)).toHaveLength(1);
+  });
+
+  it("caches alignment symmetrically regardless of argument order", async () => {
+    await repo.setAlignmentCache(ME, "mara", { values: 82, mind: 82, soul: 82, culture: 82, focus: 82 }, 82);
+    expect(await repo.getAlignmentCache(ME, "mara")).toBe(82);
+    expect(await repo.getAlignmentCache("mara", ME)).toBe(82);
+  });
+
+  it("notifies both sides, symmetrically, when a followed neighbor's alignment crosses the threshold", async () => {
+    // Seeded people already follow/are followed by ME (per PEOPLE sample
+    // data), so a vote can trip more than one neighbor's crossing — assert
+    // on mara's pair specifically rather than the whole notification list.
+    await service.setFollow(ME, "mara", true);
+    await service.castVote(ME, "c01", 2);
+
+    const mine = (await service.listNotifications(ME, 50)).filter((n) => n.kind === "alignment" && n.actorId === "mara");
+    const theirs = (await service.listNotifications("mara", 50)).filter((n) => n.kind === "alignment" && n.actorId === ME);
+
+    // Whether this particular vote happened to cross 70% with mara
+    // specifically is an algorithm detail this test doesn't pin down — what
+    // must hold is that a crossing is never one-sided, never duplicated for
+    // the same pair, and the two notifications agree on the percentage.
+    expect(mine.length).toBe(theirs.length);
+    expect(mine.length).toBeLessThanOrEqual(1);
+    if (mine.length > 0) expect(mine[0].pct).toBe(theirs[0].pct);
+  });
+
+  it("does not repeat an alignment notification for a pair already above the threshold", async () => {
+    await service.setFollow(ME, "mara", true);
+    // Pretend this pair was already known to be at 80% before this vote.
+    await repo.setAlignmentCache(ME, "mara", { values: 80, mind: 80, soul: 80, culture: 80, focus: 80 }, 80);
+
+    await service.castVote(ME, "c01", 2);
+
+    const mine = (await service.listNotifications(ME, 50)).filter((n) => n.kind === "alignment" && n.actorId === "mara");
+    expect(mine).toHaveLength(0);
+  });
+});
+
+describe("messages", () => {
+  it("opens the same conversation from either side, and lists it for both participants", async () => {
+    const opened = await service.openConversation(ME, "mara");
+    const reopened = await service.openConversation("mara", ME);
+    expect(reopened.conversationId).toBe(opened.conversationId);
+
+    const mine = await service.listConversations(ME);
+    const theirs = await service.listConversations("mara");
+    expect(mine.map((c) => c.id)).toContain(opened.conversationId);
+    expect(theirs.map((c) => c.id)).toContain(opened.conversationId);
+    expect(mine.find((c) => c.id === opened.conversationId)?.otherUserId).toBe("mara");
+    expect(theirs.find((c) => c.id === opened.conversationId)?.otherUserId).toBe(ME);
+  });
+
+  it("refuses to message yourself", async () => {
+    await expect(service.openConversation(ME, ME)).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("sends a text message and lists it back in order", async () => {
+    const { conversationId } = await service.openConversation(ME, "mara");
+    await service.sendMessage(ME, conversationId, { body: "hey" });
+    await service.sendMessage("mara", conversationId, { body: "hi!" });
+
+    const items = await service.listMessages(ME, conversationId);
+    expect(items.map((m) => m.body)).toEqual(["hey", "hi!"]);
+  });
+
+  it("refuses a message with neither text nor a forwarded post", async () => {
+    const { conversationId } = await service.openConversation(ME, "mara");
+    await expect(service.sendMessage(ME, conversationId, {})).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("carries the sender's vote alongside a forwarded post", async () => {
+    const { conversationId } = await service.openConversation(ME, "mara");
+    const message = await service.sendMessage(ME, conversationId, { contentId: "c01", votePower: 2 });
+    expect(message).toMatchObject({ contentId: "c01", voteSnapshot: 2 });
+  });
+
+  it("refuses to read or send into a conversation you're not part of", async () => {
+    const { conversationId } = await service.openConversation("mara", "tobia");
+    await expect(service.listMessages(ME, conversationId)).rejects.toMatchObject({ status: 404 });
+    await expect(service.sendMessage(ME, conversationId, { body: "hi" })).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+describe("hot takes", () => {
+  it("refuses a hot take from anyone who is not a Speaker", async () => {
+    await expect(service.postHotTake(ME, "values", "Rent is a made-up problem.")).rejects.toMatchObject({
+      status: 403,
+    });
+  });
+
+  it("lets a Speaker post one, and lists it back active with zero display-only tallies", async () => {
+    await repo.updateProfile(ME, { privacyTier: "speaker" });
+    const take = await service.postHotTake(ME, "values", "Rent is a made-up problem.");
+    expect(take).toMatchObject({ authorId: ME, category: "values", up: 0, down: 0, comments: 0 });
+
+    const items = await service.hotTakes(30);
+    expect(items.map((t) => t.id)).toContain(take.id);
+  });
+
+  it("sets an expiry roughly 14 hours out", async () => {
+    await repo.updateProfile(ME, { privacyTier: "speaker" });
+    const before = Date.now();
+    const take = await service.postHotTake(ME, "values", "This one's already stale.");
+    const hoursOut = (Date.parse(take.expiresAt) - before) / 3_600_000;
+    expect(hoursOut).toBeGreaterThan(13.9);
+    expect(hoursOut).toBeLessThan(14.1);
+  });
+});
+
 describe("right to be forgotten", () => {
   it("erases the profile, its positions and its votes", async () => {
     await service.castVote(ME, "c01", 2);
