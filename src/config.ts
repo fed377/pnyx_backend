@@ -19,6 +19,10 @@ export const config = {
   geminiApiKey: process.env.GEMINI_API_KEY ?? "",
   scorerModel: process.env.SCORER_MODEL ?? "gemini-2.5-flash-lite",
 
+  /** Outbound transactional email via Resend (https://resend.com/api-keys). */
+  resendApiKey: process.env.RESEND_API_KEY ?? "",
+  emailFrom: process.env.EMAIL_FROM ?? "Pnyx <onboarding@resend.dev>",
+
   /**
    * Accept `Authorization: Bearer dev:<userId>` instead of a real Supabase JWT.
    * Convenient locally, refused whenever STORE=supabase.
