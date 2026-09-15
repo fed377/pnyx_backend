@@ -734,4 +734,20 @@ describe("http layer", () => {
       expect(res.statusCode).toBe(401);
     });
   });
+
+  describe("rate limiting", () => {
+    it("throttles repeated forgot-password requests from the same caller", async () => {
+      const instance = app();
+      const send = () =>
+        instance.inject({
+          method: "POST",
+          url: "/auth/forgot-password",
+          payload: { email: "someone@example.com", redirect: "expo://192.168.1.5:8081/--/auth-callback" },
+        });
+      const responses = [];
+      for (let i = 0; i < 11; i++) responses.push(await send());
+      expect(responses.filter((r) => r.statusCode === 200)).toHaveLength(10);
+      expect(responses.at(-1)!.statusCode).toBe(429);
+    });
+  });
 });

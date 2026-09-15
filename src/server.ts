@@ -1,5 +1,6 @@
 import { pathToFileURL } from "node:url";
 import cors from "@fastify/cors";
+import rateLimit from "@fastify/rate-limit";
 import Fastify from "fastify";
 import { assertConfig, config } from "./config";
 import { NullMediaStore, SupabaseMediaStore, type MediaStore } from "./media";
@@ -27,8 +28,21 @@ export function buildServer(
     // its own callback URL correctly.
     trustProxy: true,
   });
-  const service = new PnyxService(repo, scorer, media);
-  registerRoutes(app, service);
+  // Global default: generous enough not to bother real usage, but every route
+  // that used to have no ceiling at all (voting, posting, comments, ...) now
+  // has one. Auth's own brute-force-sensitive routes get a much tighter
+  // per-route limit below.
+  //
+  // Routes are registered inside a plugin (not directly on `app`) so their
+  // `onRoute` notifications fire after rate-limit's own — plain app.get/post
+  // calls run synchronously immediately, while app.register() calls (this one
+  // included) are queued and boot in call order, so without this wrapping the
+  // routes would exist before rate-limit's hook did and never see it at all.
+  app.register(rateLimit, { max: 300, timeWindow: "1 minute" });
+  app.register(async (instance) => {
+    const service = new PnyxService(repo, scorer, media);
+    registerRoutes(instance, service);
+  });
   return app;
 }
 

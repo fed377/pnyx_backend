@@ -35,6 +35,11 @@ const resetPassword = z.object({ newPassword: z.string().min(8).max(200) });
  * builds use `expo://`, older ones (and some tooling) still use `exp://`. */
 const ALLOWED_REDIRECT = /^(pnyx:\/\/|expo:\/\/|exp:\/\/|exps:\/\/|https?:\/\/localhost([:/]|$))/;
 
+/** Credential-stuffing/brute-force surface — much tighter than the app-wide
+ * default (see server.ts), since these are the routes an attacker actually
+ * wants to hammer. */
+const BRUTE_FORCE_GUARD = { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } };
+
 type Session = {
   accessToken: string;
   refreshToken: string;
@@ -83,7 +88,7 @@ export function registerAuthRoutes(app: FastifyInstance) {
   const bridgeFor = (req: FastifyRequest, redirect: string) =>
     `${req.protocol}://${req.hostname}/auth/mobile-redirect?to=${encodeURIComponent(redirect)}`;
 
-  app.post("/auth/signup", async (req, reply) => {
+  app.post("/auth/signup", BRUTE_FORCE_GUARD, async (req, reply) => {
     const { email, password, name } = credentials.parse(req.body);
     const { data, error } = await auth().auth.signUp({
       email,
@@ -98,7 +103,7 @@ export function registerAuthRoutes(app: FastifyInstance) {
     return toSession({ session: data.session, user: data.user });
   });
 
-  app.post("/auth/signin", async (req) => {
+  app.post("/auth/signin", BRUTE_FORCE_GUARD, async (req) => {
     const { email, password } = credentials.parse(req.body);
     const { data, error } = await auth().auth.signInWithPassword({ email, password });
     if (error) throw new ApiError(401, error.message);
@@ -174,7 +179,7 @@ export function registerAuthRoutes(app: FastifyInstance) {
    * token — no browser, no redirect_to allowlist to maintain. Supabase
    * verifies the token against Google directly.
    */
-  app.post("/auth/google/token", async (req) => {
+  app.post("/auth/google/token", BRUTE_FORCE_GUARD, async (req) => {
     const { idToken } = googleToken.parse(req.body);
     const { data, error } = await auth().auth.signInWithIdToken({ provider: "google", token: idToken });
     if (error) throw new ApiError(401, error.message);
@@ -195,7 +200,7 @@ export function registerAuthRoutes(app: FastifyInstance) {
    * is a public, unauthenticated endpoint, and confirming an email's
    * existence here would be a user-enumeration leak.
    */
-  app.post("/auth/forgot-password", async (req) => {
+  app.post("/auth/forgot-password", BRUTE_FORCE_GUARD, async (req) => {
     const { email, redirect } = forgotPassword.parse(req.body);
     if (!ALLOWED_REDIRECT.test(redirect)) {
       throw new ApiError(400, "unsupported redirect target");

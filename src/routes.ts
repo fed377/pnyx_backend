@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyError, FastifyInstance } from "fastify";
 import { z } from "zod";
 import { requireUser } from "./auth";
 import { registerAuthRoutes } from "./authRoutes";
@@ -232,10 +232,17 @@ export function registerRoutes(app: FastifyInstance, service: PnyxService) {
     return service.voteComment(userId, id, power);
   });
 
-  app.setErrorHandler((err, _req, reply) => {
+  app.setErrorHandler((err: FastifyError | ApiError, _req, reply) => {
     if (err instanceof ApiError) return reply.code(err.status).send({ error: err.message, ...err.details });
     if (err instanceof z.ZodError) {
       return reply.code(400).send({ error: "invalid request", issues: err.issues });
+    }
+    // @fastify/rate-limit (and other Fastify-native errors) already carry
+    // their own correct status — 429 with a Retry-After, mainly — so pass
+    // those straight through instead of flattening every non-ApiError into
+    // an opaque 500.
+    if (typeof err.statusCode === "number" && err.statusCode >= 400 && err.statusCode < 500) {
+      return reply.code(err.statusCode).send({ error: err.message });
     }
     app.log.error({ err }, "unhandled error");
     return reply.code(500).send({ error: "internal error" });
