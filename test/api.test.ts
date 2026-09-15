@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { DECAY_FLOOR, MAX_WINDOW, ORIGIN, UNLOCK_AT } from "../src/core/algorithm";
-import { GRID_IDS } from "../src/core/grids";
+import { GRID_IDS, nearestPoint } from "../src/core/grids";
 import type { Positions, VotePower } from "../src/core/types";
 import type { GridId } from "../src/core/types";
 import type { MediaStore, UploadTicket } from "../src/media";
@@ -196,6 +196,43 @@ describe("the unlock rule", () => {
     // Segment width varies per grid now — long enough to stay unique within
     // that grid's own name list (see algorithm.ts's identityCode).
     expect(last.identity!.code).toMatch(/^[A-Z]{2,}(·[A-Z]{2,}){4}$/);
+  });
+
+  it("computes rarity from the real (unlocked) population, not a placeholder", async () => {
+    // ME is still locked (sitting at the origin) and excluded from its own
+    // population, but the seeded people are already unlocked — well-defined
+    // either way, not NaN/divide-by-zero.
+    const before = await service.rarity(ME);
+    for (const g of GRID_IDS) {
+      expect(before[g]).toBeGreaterThanOrEqual(0);
+      expect(before[g]).toBeLessThanOrEqual(100);
+    }
+
+    await service.updateProfile("mara", { privacyTier: "speaker" });
+    const reels = await service.reels(ME, 100);
+    const ids = reels.map((r) => r.id);
+    while (ids.length < UNLOCK_AT) {
+      const extra = await post(service, "mara", `Take number ${ids.length}, for the record.`, ["values"], "video");
+      await repo.setModerationStatus(extra.id, "approved");
+      ids.push(extra.id);
+    }
+    for (let i = 0; i < UNLOCK_AT; i++) await service.castVote(ME, ids[i], 1);
+
+    const myPositions = await repo.getPositions(ME);
+    expect(myPositions.unlocked).toBe(true);
+
+    const rarity = await service.rarity(ME);
+    const others = await repo.listProfiles(ME);
+    const rows = await repo.listPositions(others.map((p) => p.id));
+    const population = [myPositions, ...rows].filter((r) => r.unlocked);
+
+    for (const g of GRID_IDS) {
+      expect(rarity[g]).toBeGreaterThan(0);
+      expect(rarity[g]).toBeLessThanOrEqual(100);
+      const mine = nearestPoint(g, myPositions.positions[g]).name;
+      const matching = population.filter((r) => nearestPoint(g, r.positions[g]).name === mine).length;
+      expect(rarity[g]).toBe(Math.round((matching / population.length) * 100));
+    }
   });
 });
 

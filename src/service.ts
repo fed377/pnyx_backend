@@ -194,6 +194,28 @@ export class PnyxService {
   }
 
   /**
+   * Spec §6.6: "shared by only 3 people worldwide" — the share of the (unlocked)
+   * population that landed on the same named position as the caller, per grid.
+   * O(n) over everyone, same tradeoff `mostAligned` already accepts at pilot
+   * scale (see that method's own comment) rather than a real population index.
+   */
+  async rarity(userId: string): Promise<Record<GridId, number>> {
+    const me = await this.repo.getPositions(userId);
+    const others = await this.repo.listProfiles(userId);
+    const rows = others.length ? await this.repo.listPositions(others.map((p) => p.id)) : [];
+    const population = [me, ...rows].filter((row) => row.unlocked);
+    const total = population.length || 1;
+
+    const out = {} as Record<GridId, number>;
+    for (const g of GRID_IDS) {
+      const mine = nearestPoint(g, me.positions[g]).name;
+      const matching = population.filter((row) => nearestPoint(g, row.positions[g]).name === mine).length;
+      out[g] = Math.round((matching / total) * 100);
+    }
+    return out;
+  }
+
+  /**
    * The caller's own votes, oldest first, with the score snapshots. Lets the
    * client show what it already reacted to and redraw its own trajectory
    * (Statistics) without the server having to store position history.

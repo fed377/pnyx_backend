@@ -85,6 +85,12 @@ export function registerRoutes(app: FastifyInstance, service: PnyxService) {
     return { items: await service.myVotes(userId) };
   });
 
+  /** Spec §6.6: "shared by only 3 people worldwide" — real population rarity, per grid. */
+  app.get("/me/rarity", async (req) => {
+    const userId = await requireUser(req);
+    return service.rarity(userId);
+  });
+
   /** Spec §6.5: Right to Be Forgotten. */
   app.delete("/me", async (req, reply) => {
     const userId = await requireUser(req);
