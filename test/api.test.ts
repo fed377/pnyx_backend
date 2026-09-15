@@ -448,7 +448,11 @@ describe("notifications", () => {
     const content = (await repo.getContent("c01"))!;
     await service.castVote(ME, "c01", 2);
     const items = await service.listNotifications(content.authorId, 10);
-    expect(items[0]).toMatchObject({ kind: "vote", actorId: ME, contentId: "c01", body: "loved your take." });
+    // Not items[0]: castVote also fires an alignment-crossing check
+    // (Promise.all, see castVote's own comment) that can legitimately land
+    // either side of this one in a millisecond-resolution timestamp tie.
+    const vote = items.find((n) => n.kind === "vote");
+    expect(vote).toMatchObject({ actorId: ME, contentId: "c01", body: "loved your take." });
   });
 
   it("notifies the content author on a reply, not on your own comment", async () => {

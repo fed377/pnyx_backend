@@ -32,6 +32,9 @@ const profilePatch = z.object({
       focus: z.boolean(),
     })
     .optional(),
+  // One-way completion flag, set once by completeOnboarding() — see the
+  // ProfileRow field's own comment for why this lives server-side at all.
+  onboarded: z.boolean().optional(),
 });
 
 // Text-only posts can no longer be created: every new post carries media.

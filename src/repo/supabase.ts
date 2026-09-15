@@ -26,6 +26,7 @@ type ProfileRecord = {
   privacy_tier: ProfileRow["privacyTier"];
   grid_public: Record<GridId, boolean>;
   premium: boolean;
+  onboarded: boolean;
   created_at: string;
 };
 
@@ -77,6 +78,7 @@ const toProfile = (r: ProfileRecord): ProfileRow => ({
   privacyTier: r.privacy_tier,
   gridPublic: r.grid_public,
   premium: r.premium,
+  onboarded: r.onboarded,
   createdAt: r.created_at,
 });
 
@@ -263,6 +265,7 @@ export class SupabaseRepository implements Repository {
       record.tier_changed_at = new Date().toISOString();
     }
     if (patch.gridPublic !== undefined) record.grid_public = patch.gridPublic;
+    if (patch.onboarded !== undefined) record.onboarded = patch.onboarded;
 
     const data = unwrap(
       await this.db.from("profiles").update(record).eq("id", id).select("*").single(),

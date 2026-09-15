@@ -50,6 +50,7 @@ export class MemoryRepository implements Repository {
       privacyTier: "active",
       gridPublic: { values: true, mind: true, soul: true, culture: false, focus: true },
       premium: false,
+      onboarded: true,
       createdAt: new Date().toISOString(),
     });
     this.positions.set(ME_ID, {
@@ -70,6 +71,7 @@ export class MemoryRepository implements Repository {
         privacyTier: p.tier,
         gridPublic: { values: true, mind: true, soul: true, culture: true, focus: true },
         premium: false,
+        onboarded: true,
         createdAt: new Date().toISOString(),
       });
       // Seeded people arrive with history already behind them.

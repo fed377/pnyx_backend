@@ -12,6 +12,13 @@ export type ProfileRow = {
   /** Which grids this person lets others compare against (spec §4.4). */
   gridPublic: Record<GridId, boolean>;
   premium: boolean;
+  /**
+   * Whether this account has been through Onboarding (handle, age-gate,
+   * bio) — an account-level fact, not a device-level one. The client used
+   * to track "has onboarded" purely as local AsyncStorage state, which a
+   * sign-out or a second device had no way to know was already true.
+   */
+  onboarded: boolean;
   createdAt: string;
 };
 
