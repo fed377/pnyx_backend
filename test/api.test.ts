@@ -269,6 +269,16 @@ describe("alignment", () => {
     const totals = top.map((t) => t.total);
     expect([...totals].sort((a, b) => b - a)).toEqual(totals);
   });
+
+  it("searches the whole user base by name or handle, not just the top-N alignment window", async () => {
+    // A limit of 1 alone would never surface "konsta" by alignment rank —
+    // the query has to widen the candidate pool before ranking/capping runs.
+    const found = await service.mostAligned(ME, 1, "konsta");
+    expect(found).toHaveLength(1);
+    expect(found[0]!.profile.handle).toBe("konsta");
+
+    expect(await service.mostAligned(ME, 10, "no-such-person-at-all")).toHaveLength(0);
+  });
 });
 
 describe("the decay window", () => {

@@ -266,20 +266,29 @@ export class PnyxService {
    * Spec §6.3: the ten most-aligned people in the world, more behind premium.
    * Linear over the user base — fine for a bounded pilot, needs a spatial index
    * or precomputed cache before it is asked of a real population.
+   *
+   * `query` (People's search box) filters by name/handle over that same full
+   * user base first, *then* ranks and caps to `limit` — without it, search
+   * could only ever find someone already inside the top-`limit` alignment
+   * window it was scoped to.
    */
-  async mostAligned(userId: string, limit: number) {
+  async mostAligned(userId: string, limit: number, query?: string) {
     const [viewer, others, following, followers] = await Promise.all([
       this.repo.getPositions(userId),
       this.repo.listProfiles(userId),
       this.repo.listFollowing(userId),
       this.repo.listFollowers(userId),
     ]);
-    const positions = await this.repo.listPositions(others.map((p) => p.id));
+    const q = query?.trim().toLowerCase();
+    const candidates = q
+      ? others.filter((p) => p.name.toLowerCase().includes(q) || p.handle.toLowerCase().includes(q))
+      : others;
+    const positions = await this.repo.listPositions(candidates.map((p) => p.id));
     const byId = new Map(positions.map((p) => [p.userId, p]));
     const iFollow = new Set(following);
     const followsMe = new Set(followers);
 
-    return others
+    return candidates
       .map((profile) => {
         const row = byId.get(profile.id)!;
         return {

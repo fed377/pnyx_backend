@@ -124,8 +124,10 @@ export function registerRoutes(app: FastifyInstance, service: PnyxService) {
 
   app.get("/people", async (req) => {
     const userId = await requireUser(req);
-    const { limit } = z.object({ limit: z.coerce.number().min(1).max(50).default(10) }).parse(req.query);
-    return { items: await service.mostAligned(userId, limit) };
+    const { limit, q } = z
+      .object({ limit: z.coerce.number().min(1).max(50).default(10), q: z.string().max(60).optional() })
+      .parse(req.query);
+    return { items: await service.mostAligned(userId, limit, q) };
   });
 
   app.get("/people/:id", async (req) => {
