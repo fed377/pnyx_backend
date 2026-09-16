@@ -79,8 +79,12 @@ export function rankReels<T extends { id: string; scores: Scores }>(
 }
 
 /**
- * How the people you follow voted. Derived from their own grid positions rather
- * than invented, so the split stays consistent wherever it is shown.
+ * Offline/local-mode stand-in only — there's no real vote to look up without a
+ * backend, so this guesses from affinity between each friend's own grid
+ * position and the content's scores instead. Deterministic (not invented per
+ * render), so the split stays consistent wherever it's shown, but it is a
+ * guess, not a real cast vote. Remote mode uses `useFriendVotes()`
+ * (state/useFriendVotes.ts), which looks up actual votes instead.
  */
 export function friendVotes<T extends { scores: Scores }>(
   content: T,

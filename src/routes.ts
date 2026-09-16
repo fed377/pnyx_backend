@@ -235,6 +235,13 @@ export function registerRoutes(app: FastifyInstance, service: PnyxService) {
     return { items: await service.listNotifications(userId, limit) };
   });
 
+  /** Spec §6.2: real cast votes from the people the viewer follows. */
+  app.get("/content/:id/friend-votes", async (req) => {
+    const userId = await requireUser(req);
+    const { id } = z.object({ id: z.string().min(1) }).parse(req.params);
+    return { items: await service.friendVotes(userId, id) };
+  });
+
   /* ── Comments ─────────────────────────────────────────────────────────── */
 
   app.get("/content/:id/comments", async (req) => {

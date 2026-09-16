@@ -45,6 +45,9 @@ export interface Repository {
   /** Newest first, capped at `limit`. The service reverses it for replay. */
   recentVotes(userId: string, limit: number): Promise<VoteRow[]>;
   countVotes(userId: string): Promise<number>;
+  /** Real cast votes on one piece of content, restricted to `userIds` (the
+   * viewer's followees — spec §6.2's "friends' votes"). */
+  listVotesFor(contentId: string, userIds: string[]): Promise<{ userId: string; power: VotePower }[]>;
 
   /* social */
   listFollowing(userId: string): Promise<string[]>;

@@ -209,6 +209,13 @@ export class MemoryRepository implements Repository {
     return n;
   }
 
+  async listVotesFor(contentId: string, userIds: string[]) {
+    const wanted = new Set(userIds);
+    return [...this.votes.values()]
+      .filter((v) => v.contentId === contentId && wanted.has(v.userId))
+      .map((v) => ({ userId: v.userId, power: v.power }));
+  }
+
   async listFollowing(userId: string) {
     return [...this.follows]
       .filter((k) => k.startsWith(`${userId}:`))

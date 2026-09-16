@@ -404,6 +404,19 @@ export class PnyxService {
     return affinity(row.positions, content.scores);
   }
 
+  /**
+   * Spec §6.2: "on vote, show ... friends' votes" — the people the viewer
+   * follows who have *actually* cast a vote on this content, not a guess at
+   * what they'd probably think (that guess is what the client's own
+   * `friendVotes()` in `lib/feed.ts` is for, offline only, where there's no
+   * real vote to look up at all).
+   */
+  async friendVotes(viewerId: string, contentId: string) {
+    const following = await this.repo.listFollowing(viewerId);
+    if (following.length === 0) return [];
+    return this.repo.listVotesFor(contentId, following);
+  }
+
   /* ── Contribute ─────────────────────────────────────────────────────────── */
 
   /** A one-shot upload URL. Speaker-gated like posting itself. */

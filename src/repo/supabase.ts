@@ -429,6 +429,17 @@ export class SupabaseRepository implements Repository {
     return count ?? 0;
   }
 
+  async listVotesFor(contentId: string, userIds: string[]) {
+    if (userIds.length === 0) return [];
+    const { data, error } = await this.db
+      .from("votes")
+      .select("user_id,power")
+      .eq("content_id", contentId)
+      .in("user_id", userIds);
+    if (error) throw new Error(`listVotesFor: ${error.message}`);
+    return (data as { user_id: string; power: VotePower }[]).map((r) => ({ userId: r.user_id, power: r.power }));
+  }
+
   async listFollowing(userId: string) {
     const data = unwrap(
       await this.db.from("follows").select("followee_id").eq("follower_id", userId),

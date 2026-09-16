@@ -145,6 +145,15 @@ describe("the vote pipeline", () => {
     expect(result.tallies).toEqual(after!.tallies);
   });
 
+  it("reports real cast votes from followees, not everyone who voted", async () => {
+    // mara is followed (per PEOPLE's seed data); konsta is not.
+    await service.castVote("mara", "c01", 2);
+    await service.castVote("konsta", "c01", -1);
+
+    const votes = await service.friendVotes(ME, "c01");
+    expect(votes).toEqual([{ userId: "mara", power: 2 }]);
+  });
+
   it("refuses a vote on your own post", async () => {
     await service.updateProfile(ME, { privacyTier: "speaker" });
     const mine = await post(service, ME, "Benches should face each other.", ["values"]);
