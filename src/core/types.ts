@@ -80,6 +80,10 @@ export type Content = {
   createdAt: number;
   scores: Scores;
   comments: Comment[];
+  /** The real count, even though `comments` itself is lazily fetched (empty
+   * until the comments sheet actually opens) in remote mode — use this for
+   * any badge/label, not `comments.length`. */
+  commentCount: number;
   /** Deterministic mock of the global vote split, used after the user votes. */
   globalSplit: { love: number; like: number; dislike: number; hate: number };
 };

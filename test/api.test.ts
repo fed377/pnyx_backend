@@ -475,6 +475,13 @@ describe("comments", () => {
     await expect(service.addComment(ME, "does-not-exist", "hi")).rejects.toMatchObject({ status: 404 });
   });
 
+  it("increments the content's own comment count, visible on a fresh read", async () => {
+    const before = (await repo.getContent("c01"))!.commentCount;
+    await service.addComment(ME, "c01", "First.");
+    await service.addComment("mara", "c01", "Second.");
+    expect((await repo.getContent("c01"))!.commentCount).toBe(before + 2);
+  });
+
   it("tallies agree/disagree as real per-user votes, changeable and toggle-off-able", async () => {
     const comment = await service.addComment("mara", "c01", "A fair take.");
 

@@ -51,6 +51,9 @@ export type ContentRow = {
   scorer: string;
   moderationStatus: ModerationStatus;
   tallies: Tallies;
+  /** Denormalised, like the vote tallies — a live COUNT per row would be one
+   * more query per list item. Incremented by `addComment`. */
+  commentCount: number;
   createdAt: string;
 };
 

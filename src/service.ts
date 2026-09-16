@@ -524,6 +524,7 @@ export class PnyxService {
       throw new ApiError(403, "content is not available for comments");
     }
     const comment = await this.repo.insertComment({ contentId, authorId: userId, body });
+    await this.repo.incrementCommentCount(contentId);
     const preview = body.length > 80 ? `${body.slice(0, 77)}...` : body;
     await this.notify(content.authorId, { actorId: userId, kind: "reply", body: `replied: "${preview}"`, contentId });
     return comment;

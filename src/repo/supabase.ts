@@ -56,6 +56,7 @@ type ContentRecord = {
   like_count: number;
   dislike_count: number;
   hate_count: number;
+  comment_count: number;
   created_at: string;
 };
 
@@ -114,6 +115,7 @@ const toContent = (r: ContentRecord): ContentRow => ({
     dislike: r.dislike_count,
     hate: r.hate_count,
   },
+  commentCount: r.comment_count,
   createdAt: r.created_at,
 });
 
@@ -372,6 +374,11 @@ export class SupabaseRepository implements Repository {
       d_hate: delta.hate ?? 0,
     });
     if (error) throw new Error(`adjustTallies: ${error.message}`);
+  }
+
+  async incrementCommentCount(contentId: string) {
+    const { error } = await this.db.rpc("increment_comment_count", { target: contentId });
+    if (error) throw new Error(`incrementCommentCount: ${error.message}`);
   }
 
   async setModerationStatus(contentId: string, status: ContentRow["moderationStatus"]) {

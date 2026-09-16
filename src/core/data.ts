@@ -234,7 +234,8 @@ function split(love: number, like: number, dislike: number, hate: number) {
 }
 
 /** Reels — Feed only (spec §6.1: no reels on Home). */
-export const REELS: Content[] = [
+export const REELS: Content[] = (
+  [
   {
     id: id(),
     authorId: "noor",
@@ -394,10 +395,12 @@ export const REELS: Content[] = [
       { id: "k17", authorId: "bea", text: "Say that to the night shift.", up: 77, down: 12 },
     ],
   },
-];
+  ] satisfies Omit<Content, "commentCount">[]
+).map((c) => ({ ...c, commentCount: c.comments.length }));
 
 /** Home posts — image and text (spec §6.1). */
-export const POSTS: Content[] = [
+export const POSTS: Content[] = (
+  [
   {
     id: id(),
     authorId: "mara",
@@ -503,7 +506,8 @@ export const POSTS: Content[] = [
     globalSplit: split(22, 35, 28, 15),
     comments: [{ id: "p10", authorId: "dario", text: "The walk is also good though.", up: 97, down: 19 }],
   },
-];
+  ] satisfies Omit<Content, "commentCount">[]
+).map((c) => ({ ...c, commentCount: c.comments.length }));
 
 export const ALL_CONTENT: Content[] = [...REELS, ...POSTS];
 export const CONTENT_BY_ID: Record<string, Content> = Object.fromEntries(

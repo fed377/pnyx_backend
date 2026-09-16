@@ -100,6 +100,7 @@ export class MemoryRepository implements Repository {
         scorer: "seed",
         moderationStatus: "approved",
         tallies: { ...c.globalSplit },
+        commentCount: c.commentCount,
         createdAt: new Date(c.createdAt).toISOString(),
       });
     }
@@ -164,6 +165,7 @@ export class MemoryRepository implements Repository {
       ...row,
       id: randomUUID(),
       tallies: { love: 0, like: 0, dislike: 0, hate: 0 },
+      commentCount: 0,
       createdAt: new Date().toISOString(),
     };
     this.content.set(created.id, created);
@@ -182,6 +184,11 @@ export class MemoryRepository implements Repository {
   async setModerationStatus(contentId: string, status: ContentRow["moderationStatus"]) {
     const row = this.content.get(contentId);
     if (row) row.moderationStatus = status;
+  }
+
+  async incrementCommentCount(contentId: string) {
+    const row = this.content.get(contentId);
+    if (row) row.commentCount += 1;
   }
 
   async upsertVote(vote: Omit<VoteRow, "id" | "createdAt">) {

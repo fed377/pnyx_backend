@@ -19,7 +19,7 @@ export type ContentFilter = {
   limit?: number;
 };
 
-export type NewContent = Omit<ContentRow, "id" | "createdAt" | "tallies">;
+export type NewContent = Omit<ContentRow, "id" | "createdAt" | "tallies" | "commentCount">;
 
 export interface Repository {
   /* profiles */
@@ -39,6 +39,7 @@ export interface Repository {
   adjustTallies(contentId: string, delta: Partial<Record<"love" | "like" | "dislike" | "hate", number>>): Promise<void>;
   /** Moderation decision (spec §8). Nothing is votable until it is approved. */
   setModerationStatus(contentId: string, status: ContentRow["moderationStatus"]): Promise<void>;
+  incrementCommentCount(contentId: string): Promise<void>;
 
   /* votes */
   upsertVote(vote: Omit<VoteRow, "id" | "createdAt">): Promise<{ previousPower: VotePower | null }>;
