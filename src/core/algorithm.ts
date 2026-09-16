@@ -125,7 +125,14 @@ export function distance(a: Point, b: Point): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
-/** Percentage closeness of two positions on one grid. */
+/**
+ * Percentage closeness of two positions on one grid, normalized to the grid's
+ * own max diagonal. Spec §4.4 also calls for normalizing "to each user's own
+ * vote-count scale," but defines no formula for that anywhere — this is a
+ * confirmed spec-wording gap (see MISSING_FEATURES.md P2.13), not a bug to fix
+ * against this code. Product decision: leave as grid-diagonal normalization
+ * until the spec supplies an actual formula.
+ */
 export function gridAlignment(a: Point, b: Point): number {
   return (1 - distance(a, b) / MAX_DIST) * 100;
 }
