@@ -22,27 +22,69 @@ export function meanConfidence(scores: Scores): number {
   return GRID_IDS.reduce((sum, g) => sum + scores[g].confidence, 0) / GRID_IDS.length;
 }
 
+export type OpinionTallies = { love: number; like: number; dislike: number; hate: number };
+
+/** Below this many total votes, a piece of content's opinion split is too
+ * noisy a sample to move ranking — one or two early votes shouldn't swing it. */
+const MIN_VOTES_FOR_OPINION_SIGNAL = 5;
+
+/** How far the opinion-split incentive can move a reel's ranking score:
+ * unanimous content (everyone reacts the same way) is pushed down toward
+ * this floor, perfectly split content is pushed up toward the ceiling. */
+const OPINION_SPLIT_FLOOR = 0.5;
+const OPINION_SPLIT_CEILING = 1.5;
+
+/**
+ * How divided reactions are on a piece of content: 0 = total consensus (every
+ * reaction on the same side), 1 = an even split between positive (love/like)
+ * and negative (dislike/hate). Independent of which side "won" — a post
+ * everyone hates scores the same as a post everyone loves.
+ */
+export function opinionSplit(t: OpinionTallies): number {
+  const positive = t.love + t.like;
+  const negative = t.dislike + t.hate;
+  const total = positive + negative;
+  if (total === 0) return 0;
+  return 1 - Math.abs(positive - negative) / total;
+}
+
+/**
+ * User-incentive mechanism: content that provokes real disagreement earns
+ * more reach than content everyone just nods along to. Neutral (1×) until
+ * there's enough votes to trust the split at all.
+ */
+export function opinionSplitMultiplier(t: OpinionTallies): number {
+  const total = t.love + t.like + t.dislike + t.hate;
+  if (total < MIN_VOTES_FOR_OPINION_SIGNAL) return 1;
+  return OPINION_SPLIT_FLOOR + (OPINION_SPLIT_CEILING - OPINION_SPLIT_FLOOR) * opinionSplit(t);
+}
+
 /**
  * Recommendation order (spec §4.3).
  *
  * Cold start: the first 50 reactions get a deliberately broad spread rather than
  * a proximity ranking. After that, score favours content that is close to the
- * user *and* confidently scored, and every 20th slot is handed to the most
- * against-the-grain item still unseen.
+ * user *and* confidently scored *and* provokes disagreement rather than
+ * consensus, and every 20th slot is handed to the most against-the-grain item
+ * still unseen.
  */
 export function rankReels<T extends { id: string; scores: Scores }>(
   reels: T[],
   positions: Positions,
   voteCount: number,
+  getTallies: (item: T) => OpinionTallies,
 ): T[] {
   const scored = reels.map((c) => ({
     c,
     aff: affinity(positions, c.scores),
     conf: meanConfidence(c.scores),
+    split: opinionSplitMultiplier(getTallies(c)),
   }));
 
   if (voteCount < 50) {
-    // Broad and diverse: alternate ends of the affinity range.
+    // Broad and diverse: alternate ends of the affinity range. Cold-start
+    // exposure is about the viewer seeing a wide spread, not the creator
+    // incentive below — the opinion-split multiplier doesn't apply here.
     const sorted = [...scored].sort((a, b) => b.aff - a.aff);
     const out: T[] = [];
     let head = 0;
@@ -55,7 +97,7 @@ export function rankReels<T extends { id: string; scores: Scores }>(
   }
 
   const byScore = [...scored].sort(
-    (a, b) => b.aff * b.conf - a.aff * a.conf,
+    (a, b) => b.aff * b.conf * b.split - a.aff * a.conf * a.split,
   );
   const contrarian = [...scored].sort((a, b) => a.aff - b.aff).map((s) => s.c);
 

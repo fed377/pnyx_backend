@@ -390,7 +390,7 @@ export class PnyxService {
     // Your own reels are included — spec §5 forbids *voting* on them, not seeing
     // them, and Home already lists your own posts. The client disables the vote
     // controls. Filter by `r.authorId !== userId` here if that changes.
-    return rankReels(rows, positions, voteCount).slice(0, limit);
+    return rankReels(rows, positions, voteCount, (c) => c.tallies).slice(0, limit);
   }
 
   /** Spec §6.1: image and text posts, people you follow first. */
