@@ -97,4 +97,12 @@ export interface Repository {
   /** Not-yet-expired takes, newest first. */
   listActiveHotTakes(limit: number): Promise<HotTakeRow[]>;
   insertHotTake(input: { authorId: string; category: GridId; body: string }): Promise<HotTakeRow>;
+
+  /* push notifications */
+  /** Idempotent — the same device token re-registering (app relaunch, token
+   * refresh) just re-points it at the current user rather than duplicating. */
+  savePushToken(userId: string, token: string): Promise<void>;
+  listPushTokens(userIds: string[]): Promise<{ userId: string; token: string }[]>;
+  /** Called when Expo's push service reports a token as dead. */
+  removePushToken(token: string): Promise<void>;
 }

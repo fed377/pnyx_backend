@@ -35,7 +35,16 @@ const profilePatch = z.object({
   // One-way completion flag, set once by completeOnboarding() — see the
   // ProfileRow field's own comment for why this lives server-side at all.
   onboarded: z.boolean().optional(),
+  notifPrefs: z
+    .object({
+      votes: z.boolean(),
+      replies: z.boolean(),
+      alignments: z.boolean(),
+    })
+    .optional(),
 });
+
+const pushToken = z.object({ token: z.string().min(10).max(500) });
 
 // Text-only posts can no longer be created: every new post carries media.
 const newContent = z.object({
@@ -89,6 +98,15 @@ export function registerRoutes(app: FastifyInstance, service: PnyxService) {
   app.get("/me/rarity", async (req) => {
     const userId = await requireUser(req);
     return service.rarity(userId);
+  });
+
+  /** A device registering for OS push notifications (or re-registering on
+   * relaunch/token refresh — idempotent either way). */
+  app.post("/me/push-token", async (req) => {
+    const userId = await requireUser(req);
+    const { token } = pushToken.parse(req.body);
+    await service.registerPushToken(userId, token);
+    return { ok: true };
   });
 
   /** Spec §6.5: Right to Be Forgotten. */

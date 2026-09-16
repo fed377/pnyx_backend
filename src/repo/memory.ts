@@ -34,6 +34,7 @@ export class MemoryRepository implements Repository {
   private conversations = new Map<string, ConversationRow>();
   private messages = new Map<string, MessageRow>();
   private hotTakes = new Map<string, HotTakeRow>();
+  private pushTokens = new Map<string, string>(); // token -> userId
 
   constructor() {
     this.seed();
@@ -51,6 +52,7 @@ export class MemoryRepository implements Repository {
       gridPublic: { values: true, mind: true, soul: true, culture: false, focus: true },
       premium: false,
       onboarded: true,
+      notifPrefs: { votes: true, replies: true, alignments: false },
       createdAt: new Date().toISOString(),
     });
     this.positions.set(ME_ID, {
@@ -72,6 +74,7 @@ export class MemoryRepository implements Repository {
         gridPublic: { values: true, mind: true, soul: true, culture: true, focus: true },
         premium: false,
         onboarded: true,
+        notifPrefs: { votes: true, replies: true, alignments: false },
         createdAt: new Date().toISOString(),
       });
       // Seeded people arrive with history already behind them.
@@ -242,6 +245,7 @@ export class MemoryRepository implements Repository {
     for (const [k, v] of this.conversations) if (v.userA === userId || v.userB === userId) this.conversations.delete(k);
     for (const [k, v] of this.messages) if (v.senderId === userId) this.messages.delete(k);
     for (const [k, v] of this.hotTakes) if (v.authorId === userId) this.hotTakes.delete(k);
+    for (const [k, v] of this.pushTokens) if (v === userId) this.pushTokens.delete(k);
   }
 
   async recordStrike(userId: string, _reason: string) {
@@ -384,6 +388,21 @@ export class MemoryRepository implements Repository {
     };
     this.hotTakes.set(row.id, row);
     return row;
+  }
+
+  async savePushToken(userId: string, token: string) {
+    this.pushTokens.set(token, userId);
+  }
+
+  async listPushTokens(userIds: string[]) {
+    const wanted = new Set(userIds);
+    return [...this.pushTokens.entries()]
+      .filter(([, userId]) => wanted.has(userId))
+      .map(([token, userId]) => ({ userId, token }));
+  }
+
+  async removePushToken(token: string) {
+    this.pushTokens.delete(token);
   }
 }
 

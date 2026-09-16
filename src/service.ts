@@ -13,6 +13,7 @@ import type { GridId, Positions, Vote, VotePower } from "./core/types";
 import { ApiError, bucketOf } from "./domain";
 import type { ContentRow, ProfileRow } from "./domain";
 import { mimeKind, pathBelongsTo, type MediaStore } from "./media";
+import { NullPushSender, type PushSender } from "./push";
 import type { Repository } from "./repo/types";
 import type { ContentScorer, ScorableContent } from "./scoring/scorer";
 
@@ -22,12 +23,15 @@ export type IdentitySummary = {
   grids: Record<GridId, { name: string; orientation: string; meaning: string; hex?: string; animal?: string }>;
 };
 
-export type PublicProfile = ProfileRow & {
+export type PublicProfile = Omit<ProfileRow, "notifPrefs"> & {
   positions: Positions | null;
   voteCount: number;
   unlocked: boolean;
   identity: IdentitySummary | null;
   alignment?: { total: number; perGrid: Record<GridId, number> };
+  /** How *this account* wants to be notified — present only on your own `/me`,
+   * never on someone else's viewed or ranked profile. */
+  notifPrefs?: ProfileRow["notifPrefs"];
 };
 
 function summarise(positions: Positions, unlocked: boolean): IdentitySummary | null {
@@ -56,6 +60,7 @@ export class PnyxService {
     private readonly repo: Repository,
     private readonly scorer: ContentScorer,
     private readonly media: MediaStore,
+    private readonly pushSender: PushSender = new NullPushSender(),
   ) {}
 
   /* ── Positions ──────────────────────────────────────────────────────────── */
@@ -138,6 +143,33 @@ export class PnyxService {
     // Never notify someone about their own action.
     if (input.actorId === userId) return;
     await this.repo.insertNotification({ userId, ...input });
+    // Awaited (like the in-app write above) so this is deterministic for
+    // callers and tests, but caught — a push failure must never surface as
+    // a failure of whatever action triggered the notification.
+    await this.sendPush(userId, input).catch(() => {});
+  }
+
+  /** "follow" has no Settings toggle (there never was one), so it always
+   * sends; every other kind is gated by the recipient's own notifPrefs. */
+  private async sendPush(userId: string, input: { kind: string; body: string }) {
+    const prefKey = (
+      { vote: "votes", reply: "replies", alignment: "alignments" } as Record<string, keyof ProfileRow["notifPrefs"]>
+    )[input.kind];
+    const profile = await this.repo.getProfile(userId);
+    if (!profile || (prefKey && !profile.notifPrefs[prefKey])) return;
+
+    const tokens = await this.repo.listPushTokens([userId]);
+    if (tokens.length === 0) return;
+    await this.pushSender.send(
+      tokens.map((t) => t.token),
+      { title: "PNYX", body: input.body },
+    );
+  }
+
+  /** A device registering (or re-registering, on relaunch/token refresh) for
+   * OS push notifications. */
+  async registerPushToken(userId: string, token: string) {
+    await this.repo.savePushToken(userId, token);
   }
 
   async listNotifications(userId: string, limit = 50) {
@@ -249,8 +281,11 @@ export class PnyxService {
     for (const g of GRID_IDS) if (profile.gridPublic[g]) visible[g] = perGrid[g];
 
     const hidden = profile.privacyTier === "private";
+    // notifPrefs is how *this account* wants to be notified — meaningless,
+    // and not this viewer's business, on anyone else's profile.
+    const { notifPrefs: _notifPrefs, ...publicProfile } = profile;
     return {
-      ...profile,
+      ...publicProfile,
       positions: hidden ? null : target.positions,
       voteCount: target.voteCount,
       unlocked: target.unlocked,
@@ -291,8 +326,10 @@ export class PnyxService {
     return candidates
       .map((profile) => {
         const row = byId.get(profile.id)!;
+        // notifPrefs is nobody else's business — see viewProfile's own comment.
+        const { notifPrefs: _notifPrefs, ...publicProfile } = profile;
         return {
-          profile,
+          profile: publicProfile,
           total: totalAlignment(viewer.positions, row.positions),
           voteCount: row.voteCount,
           unlocked: row.unlocked,

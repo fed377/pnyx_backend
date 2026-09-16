@@ -4,6 +4,7 @@ import { GRID_IDS, nearestPoint } from "../src/core/grids";
 import type { Positions, VotePower } from "../src/core/types";
 import type { GridId } from "../src/core/types";
 import type { MediaStore, UploadTicket } from "../src/media";
+import type { PushSender } from "../src/push";
 import { MemoryRepository } from "../src/repo/memory";
 import { DeterministicScorer } from "../src/scoring/scorer";
 import type { ContentScorer, ScoreOutcome } from "../src/scoring/scorer";
@@ -34,6 +35,14 @@ class FakeMediaStore implements MediaStore {
   }
   async deleteAll(userId: string) {
     this.deletedUsers.push(userId);
+  }
+}
+
+/** Records every send instead of talking to Expo's push service. */
+class FakePushSender implements PushSender {
+  readonly sent: { tokens: string[]; title: string; body: string }[] = [];
+  async send(tokens: string[], input: { title: string; body: string }) {
+    this.sent.push({ tokens, title: input.title, body: input.body });
   }
 }
 
@@ -554,6 +563,54 @@ describe("notifications", () => {
 
     const mine = (await service.listNotifications(ME, 50)).filter((n) => n.kind === "alignment" && n.actorId === "mara");
     expect(mine).toHaveLength(0);
+  });
+});
+
+describe("push notifications", () => {
+  it("sends a push for a vote — enabled by default", async () => {
+    const push = new FakePushSender();
+    const withPush = new PnyxService(repo, new DeterministicScorer(), media, push);
+    const content = (await repo.getContent("c01"))!;
+    await withPush.registerPushToken(content.authorId, "ExponentPushToken[fake-vote]");
+
+    await withPush.castVote(ME, "c01", 2);
+
+    expect(push.sent).toContainEqual(
+      expect.objectContaining({ tokens: ["ExponentPushToken[fake-vote]"], body: "loved your take." }),
+    );
+  });
+
+  it("respects the recipient's own notifPrefs toggle", async () => {
+    const push = new FakePushSender();
+    const withPush = new PnyxService(repo, new DeterministicScorer(), media, push);
+    const content = (await repo.getContent("c01"))!;
+    await withPush.registerPushToken(content.authorId, "ExponentPushToken[fake-vote-off]");
+    await repo.updateProfile(content.authorId, { notifPrefs: { votes: false, replies: true, alignments: false } });
+
+    await withPush.castVote(ME, "c01", 2);
+
+    expect(push.sent).toHaveLength(0);
+  });
+
+  it("always sends for a follow — there is no Settings toggle for it", async () => {
+    const push = new FakePushSender();
+    const withPush = new PnyxService(repo, new DeterministicScorer(), media, push);
+    await withPush.registerPushToken("mara", "ExponentPushToken[fake-follow]");
+
+    await withPush.setFollow(ME, "mara", true);
+
+    expect(push.sent).toContainEqual(expect.objectContaining({ tokens: ["ExponentPushToken[fake-follow]"] }));
+  });
+
+  it("registers a push token over HTTP", async () => {
+    const app = buildServer(new MemoryRepository(), new FakeMediaStore());
+    const res = await app.inject({
+      method: "POST",
+      url: "/me/push-token",
+      headers: auth(),
+      payload: { token: "ExponentPushToken[fake-http]" },
+    });
+    expect(res.statusCode).toBe(200);
   });
 });
 

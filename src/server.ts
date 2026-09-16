@@ -4,6 +4,7 @@ import rateLimit from "@fastify/rate-limit";
 import Fastify from "fastify";
 import { assertConfig, config } from "./config";
 import { NullMediaStore, SupabaseMediaStore, type MediaStore } from "./media";
+import { ExpoPushSender, NullPushSender, type PushSender } from "./push";
 import { MemoryRepository } from "./repo/memory";
 import { SupabaseRepository } from "./repo/supabase";
 import type { Repository } from "./repo/types";
@@ -17,6 +18,7 @@ export function buildServer(
   repo: Repository = new MemoryRepository(),
   media: MediaStore = new NullMediaStore(),
   scorer: ContentScorer = new DeterministicScorer(),
+  pushSender: PushSender = new NullPushSender(),
 ) {
   const app = Fastify({
     // Quiet under vitest: request logging dominates the cost of an inject() call.
@@ -40,7 +42,7 @@ export function buildServer(
   // routes would exist before rate-limit's hook did and never see it at all.
   app.register(rateLimit, { max: 300, timeWindow: "1 minute" });
   app.register(async (instance) => {
-    const service = new PnyxService(repo, scorer, media);
+    const service = new PnyxService(repo, scorer, media, pushSender);
     registerRoutes(instance, service);
   });
   return app;
@@ -66,7 +68,7 @@ async function main() {
     ? new GeminiScorer({ apiKey: config.geminiApiKey, model: config.scorerModel })
     : new DeterministicScorer();
 
-  const app = buildServer(repo, media, scorer);
+  const app = buildServer(repo, media, scorer, new ExpoPushSender());
   await app.register(cors, { origin: true });
 
   await app.listen({ port: config.port, host: config.host });

@@ -27,6 +27,7 @@ type ProfileRecord = {
   grid_public: Record<GridId, boolean>;
   premium: boolean;
   onboarded: boolean;
+  notif_prefs: ProfileRow["notifPrefs"];
   created_at: string;
 };
 
@@ -79,6 +80,7 @@ const toProfile = (r: ProfileRecord): ProfileRow => ({
   gridPublic: r.grid_public,
   premium: r.premium,
   onboarded: r.onboarded,
+  notifPrefs: r.notif_prefs,
   createdAt: r.created_at,
 });
 
@@ -266,6 +268,7 @@ export class SupabaseRepository implements Repository {
     }
     if (patch.gridPublic !== undefined) record.grid_public = patch.gridPublic;
     if (patch.onboarded !== undefined) record.onboarded = patch.onboarded;
+    if (patch.notifPrefs !== undefined) record.notif_prefs = patch.notifPrefs;
 
     const data = unwrap(
       await this.db.from("profiles").update(record).eq("id", id).select("*").single(),
@@ -712,5 +715,22 @@ export class SupabaseRepository implements Repository {
       "insertHotTake",
     ) as HotTakeRecord;
     return toHotTake(data);
+  }
+
+  async savePushToken(userId: string, token: string) {
+    const { error } = await this.db.from("push_tokens").upsert({ token, user_id: userId }, { onConflict: "token" });
+    if (error) throw new Error(`savePushToken: ${error.message}`);
+  }
+
+  async listPushTokens(userIds: string[]) {
+    if (userIds.length === 0) return [];
+    const { data, error } = await this.db.from("push_tokens").select("user_id,token").in("user_id", userIds);
+    if (error) throw new Error(`listPushTokens: ${error.message}`);
+    return (data as { user_id: string; token: string }[]).map((r) => ({ userId: r.user_id, token: r.token }));
+  }
+
+  async removePushToken(token: string) {
+    const { error } = await this.db.from("push_tokens").delete().eq("token", token);
+    if (error) throw new Error(`removePushToken: ${error.message}`);
   }
 }

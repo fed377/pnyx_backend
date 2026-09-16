@@ -19,6 +19,10 @@ export type ProfileRow = {
    * sign-out or a second device had no way to know was already true.
    */
   onboarded: boolean;
+  /** Which of the notification kinds a push should actually go out for.
+   * "follow" has no toggle — there was never a Settings row for it, so it
+   * always sends. */
+  notifPrefs: { votes: boolean; replies: boolean; alignments: boolean };
   createdAt: string;
 };
 
