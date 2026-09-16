@@ -24,6 +24,7 @@ type ProfileRecord = {
   city: string;
   avatar_url: string | null;
   privacy_tier: ProfileRow["privacyTier"];
+  tier_changed_at: string | null;
   grid_public: Record<GridId, boolean>;
   premium: boolean;
   onboarded: boolean;
@@ -78,6 +79,7 @@ const toProfile = (r: ProfileRecord): ProfileRow => ({
   city: r.city,
   avatarUrl: r.avatar_url ?? undefined,
   privacyTier: r.privacy_tier,
+  tierChangedAt: r.tier_changed_at,
   gridPublic: r.grid_public,
   premium: r.premium,
   onboarded: r.onboarded,

@@ -12,6 +12,12 @@ export type ProfileRow = {
   /** Which grids this person lets others compare against (spec §4.4). */
   gridPublic: Record<GridId, boolean>;
   premium: boolean;
+  /** Spec §6.5: when `privacyTier` last actually changed — enforces the
+   * once-per-30-days cooldown in `PnyxService.updateProfile`. Null means the
+   * account has never made a deliberate change, so the cooldown hasn't
+   * started yet (a brand-new account shouldn't be locked out of its first
+   * tier pick). */
+  tierChangedAt: string | null;
   /**
    * Whether this account has been through Onboarding (handle, age-gate,
    * bio) — an account-level fact, not a device-level one. The client used

@@ -49,6 +49,7 @@ export class MemoryRepository implements Repository {
       bio: ME_DEFAULTS.bio,
       city: ME_DEFAULTS.city,
       privacyTier: "active",
+      tierChangedAt: null,
       gridPublic: { values: true, mind: true, soul: true, culture: false, focus: true },
       premium: false,
       onboarded: true,
@@ -71,6 +72,7 @@ export class MemoryRepository implements Repository {
         bio: p.bio,
         city: p.city,
         privacyTier: p.tier,
+        tierChangedAt: null,
         gridPublic: { values: true, mind: true, soul: true, culture: true, focus: true },
         premium: false,
         onboarded: true,
@@ -118,6 +120,9 @@ export class MemoryRepository implements Repository {
     const current = this.profiles.get(id);
     if (!current) throw new Error(`no such profile: ${id}`);
     const next = { ...current, ...patch, id: current.id };
+    if (patch.privacyTier !== undefined && patch.privacyTier !== current.privacyTier) {
+      next.tierChangedAt = new Date().toISOString();
+    }
     this.profiles.set(id, next);
     return next;
   }

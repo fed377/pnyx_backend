@@ -394,6 +394,43 @@ describe("contributing", () => {
   });
 });
 
+describe("privacy tier changes", () => {
+  it("allows a brand-new account's first tier change with no cooldown", async () => {
+    const before = await service.me(ME);
+    expect(before.privacyTier).toBe("active");
+    const after = await service.updateProfile(ME, { privacyTier: "speaker" });
+    expect(after.privacyTier).toBe("speaker");
+  });
+
+  it("refuses a second change within 30 days of the first", async () => {
+    await service.updateProfile(ME, { privacyTier: "speaker" });
+    await expect(service.updateProfile(ME, { privacyTier: "active" })).rejects.toMatchObject({
+      status: 429,
+    });
+  });
+
+  it("allows a second change once 30 days have passed", async () => {
+    await service.updateProfile(ME, { privacyTier: "speaker" });
+    const withStaleCooldown = await repo.getProfile(ME);
+    await repo.updateProfile(ME, {
+      tierChangedAt: new Date(Date.parse(withStaleCooldown!.tierChangedAt!) - 31 * 24 * 60 * 60 * 1000).toISOString(),
+    });
+    const after = await service.updateProfile(ME, { privacyTier: "active" });
+    expect(after.privacyTier).toBe("active");
+  });
+
+  it("does not restart the cooldown when the patch repeats the current tier", async () => {
+    await service.updateProfile(ME, { privacyTier: "speaker" });
+    await service.updateProfile(ME, { privacyTier: "speaker" }); // no-op, should not throw
+    const profile = await repo.getProfile(ME);
+    // Still governed by the original change, not reset by the no-op.
+    await expect(service.updateProfile(ME, { privacyTier: "active" })).rejects.toMatchObject({
+      status: 429,
+    });
+    expect(profile!.privacyTier).toBe("speaker");
+  });
+});
+
 describe("your own reels", () => {
   it("appear in your feed, even though you cannot vote on them", async () => {
     await service.updateProfile(ME, { privacyTier: "speaker" });
@@ -419,7 +456,10 @@ describe("uploads", () => {
   });
 
   it("refuses an upload ticket to anyone who is not a Speaker", async () => {
-    await service.updateProfile(ME, { privacyTier: "active" });
+    // Bypass the service's 30-day tier-change cooldown here — this test is
+    // about upload-ticket gating, not the cooldown itself, and the
+    // `beforeEach` above already spent this account's one free change.
+    await repo.updateProfile(ME, { privacyTier: "active" });
     await expect(service.createUploadTicket(ME, "image/jpeg")).rejects.toMatchObject({ status: 403 });
   });
 
