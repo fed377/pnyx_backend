@@ -428,6 +428,11 @@ export class PnyxService {
    * real vote to look up at all).
    */
   async friendVotes(viewerId: string, contentId: string) {
+    const content = await this.repo.getContent(contentId);
+    if (!content) throw new ApiError(404, "no such content");
+    if (content.moderationStatus !== "approved" && content.authorId !== viewerId) {
+      throw new ApiError(403, "content is not available");
+    }
     const following = await this.repo.listFollowing(viewerId);
     if (following.length === 0) return [];
     return this.repo.listVotesFor(contentId, following);
@@ -530,6 +535,9 @@ export class PnyxService {
   async listComments(userId: string, contentId: string) {
     const content = await this.repo.getContent(contentId);
     if (!content) throw new ApiError(404, "no such content");
+    if (content.moderationStatus !== "approved" && content.authorId !== userId) {
+      throw new ApiError(403, "content is not available");
+    }
     return this.repo.listComments(contentId, userId);
   }
 

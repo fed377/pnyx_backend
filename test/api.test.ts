@@ -154,6 +154,14 @@ describe("the vote pipeline", () => {
     expect(votes).toEqual([{ userId: "mara", power: 2 }]);
   });
 
+  it("refuses friend-votes on content that isn't approved, to anyone but its author", async () => {
+    const approved = (await repo.getContent("c01"))!;
+    const pending = await repo.insertContent({ ...approved, authorId: "mara", moderationStatus: "pending" });
+
+    await expect(service.friendVotes(ME, pending.id)).rejects.toMatchObject({ status: 403 });
+    await expect(service.friendVotes("mara", pending.id)).resolves.toEqual([]);
+  });
+
   it("refuses a vote on your own post", async () => {
     await service.updateProfile(ME, { privacyTier: "speaker" });
     const mine = await post(service, ME, "Benches should face each other.", ["values"]);
@@ -513,6 +521,14 @@ describe("comments", () => {
 
   it("refuses a comment on content that doesn't exist", async () => {
     await expect(service.addComment(ME, "does-not-exist", "hi")).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("refuses to list comments on content that isn't approved, to anyone but its author", async () => {
+    const approved = (await repo.getContent("c01"))!;
+    const pending = await repo.insertContent({ ...approved, authorId: "mara", moderationStatus: "pending" });
+
+    await expect(service.listComments(ME, pending.id)).rejects.toMatchObject({ status: 403 });
+    await expect(service.listComments("mara", pending.id)).resolves.toEqual([]);
   });
 
   it("increments the content's own comment count, visible on a fresh read", async () => {

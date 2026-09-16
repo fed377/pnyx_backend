@@ -13,7 +13,18 @@ export const config = {
   supabaseUrl: process.env.SUPABASE_URL ?? "",
   /** Server-side only. Bypasses RLS, so it must never reach a client. */
   supabaseServiceKey: process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
-  supabaseJwtSecret: process.env.SUPABASE_JWT_SECRET ?? "",
+
+  /**
+   * Browser origins allowed to call this API cross-origin (comma-separated).
+   * The native app's own requests aren't subject to CORS at all — this only
+   * matters if a browser-based client ever exists. Empty means none: no
+   * known web client exists yet, so the safe default is to deny rather than
+   * reflect every origin.
+   */
+  allowedOrigins: (process.env.ALLOWED_ORIGINS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
 
   /** Spec §8 content scoring. Without it the server falls back to the deterministic stub. */
   geminiApiKey: process.env.GEMINI_API_KEY ?? "",

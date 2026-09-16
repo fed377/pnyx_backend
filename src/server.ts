@@ -27,8 +27,15 @@ export function buildServer(
     // plain HTTP internally — without this, req.protocol/req.hostname would
     // report the internal "http" hop instead of what the client actually
     // used, which the OAuth bridge page (authRoutes.ts) depends on to build
-    // its own callback URL correctly.
-    trustProxy: true,
+    // its own callback URL correctly. Trusting only hop 0 (the edge proxy
+    // itself, not anything further left in X-Forwarded-For) means a caller
+    // can't spoof its own IP by sending that header directly, which would
+    // otherwise defeat @fastify/rate-limit's per-IP keying. `trustProxy: true`
+    // would trust the whole chain instead; a bare hop-count number isn't in
+    // Fastify's own TS types even though the underlying proxy-addr library
+    // supports it, hence the function form. Widen this only if the
+    // deployment ever adds a second proxy hop in front of the edge.
+    trustProxy: (_address, hop) => hop === 0,
   });
   // Global default: generous enough not to bother real usage, but every route
   // that used to have no ceiling at all (voting, posting, comments, ...) now
@@ -69,7 +76,11 @@ async function main() {
     : new DeterministicScorer();
 
   const app = buildServer(repo, media, scorer, new ExpoPushSender());
-  await app.register(cors, { origin: true });
+  // The native app's own requests aren't subject to CORS at all — this only
+  // gates a hypothetical browser-based client. No such client exists yet, so
+  // an empty ALLOWED_ORIGINS means `origin: false` (deny all cross-origin
+  // browser access) rather than reflecting every origin.
+  await app.register(cors, { origin: config.allowedOrigins.length ? config.allowedOrigins : false });
 
   await app.listen({ port: config.port, host: config.host });
   app.log.info({ store: config.store, devAuth: config.devAuth, scorer: scorer.name }, "PNYX API ready");
