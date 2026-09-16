@@ -102,9 +102,13 @@ const culture: Grid = {
     { x: 0.33, y: -0.33, name: "Sky", hex: "#7DD3FC", meaning: "Finds the new thing early" },
     { x: 0.66, y: -0.66, name: "Aqua", hex: "#67E8F9", meaning: "Lives three months ahead of the feed" },
     { x: 1, y: -1, name: "Cyan", hex: "#22D3EE", meaning: "Nothing mainstream, nothing older than last year" },
-    { x: -0.33, y: -0.33, name: "Lilac", hex: "#A5B4FC", meaning: "Watches what everyone is watching, now" },
-    { x: -0.66, y: -0.66, name: "Indigo", hex: "#818CF8", meaning: "Fluent in the current moment" },
-    { x: -1, y: -1, name: "Electric", hex: "#6366F1", meaning: "Whatever is big this week, they are already in it" },
+    // Original three (#A5B4FC/#818CF8/#6366F1) sat only ~9° apart in hue — close
+    // enough to read as the same color once rendered as a gradient (see
+    // glossGradient's own comment). Re-pinned further apart across the same
+    // blue-to-violet family: electric blue, true indigo, soft pink-lilac.
+    { x: -0.33, y: -0.33, name: "Lilac", hex: "#DA97F7", meaning: "Watches what everyone is watching, now" },
+    { x: -0.66, y: -0.66, name: "Indigo", hex: "#7051EC", meaning: "Fluent in the current moment" },
+    { x: -1, y: -1, name: "Electric", hex: "#347AF4", meaning: "Whatever is big this week, they are already in it" },
     { x: -0.33, y: 0.33, name: "Sage", hex: "#86A68A", meaning: "The classics, the popular ones" },
     { x: -0.66, y: 0.66, name: "Olive", hex: "#8F9560", meaning: "Trusts what has already lasted" },
     { x: -1, y: 1, name: "Moss", hex: "#647052", meaning: "The canon, widely shared, well worn" },
