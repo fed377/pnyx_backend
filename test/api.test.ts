@@ -661,6 +661,18 @@ describe("http layer", () => {
     expect(res.statusCode).toBe(401);
   });
 
+  it("cannot be used to self-grant premium — there is no route for it", async () => {
+    const instance = app();
+    const res = await instance.inject({
+      method: "PATCH",
+      url: "/me",
+      headers: auth(),
+      payload: { premium: true },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().premium).toBe(false);
+  });
+
   it("casts a vote over HTTP and returns the new position", async () => {
     const res = await app().inject({
       method: "POST",
