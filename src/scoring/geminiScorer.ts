@@ -1,9 +1,15 @@
 import { randomBytes } from "node:crypto";
-import { GoogleGenAI, Type, type Schema } from "@google/genai";
+import { ApiError as GenAiApiError, GoogleGenAI, Type, type Schema } from "@google/genai";
 import { z } from "zod";
 import { GRIDS, GRID_IDS } from "../core/grids";
 import type { Scores } from "../core/types";
+import { ApiError } from "../domain";
 import type { ContentScorer, ModerationVerdict, ScorableContent, ScoreOutcome } from "./scorer";
+
+/** Gemini's own transient-overload/rate-limit statuses — worth one retry, unlike
+ * a genuinely bad request (400) or an auth/model problem (401/404). */
+const TRANSIENT_STATUSES = new Set([429, 503]);
+const RETRY_DELAYS_MS = [500, 1500];
 
 const scoreSchema = z.object({
   x: z.number().finite(),
@@ -165,20 +171,38 @@ export class GeminiScorer implements ContentScorer {
 
   async score(content: ScorableContent): Promise<ScoreOutcome> {
     const media = await this.prepareMedia(content);
+    const contents = [{ text: this.describe(content, media !== null) }, ...(media ? [media] : [])];
 
-    const response = await this.client.models.generateContent({
-      model: this.model,
-      contents: [{ text: this.describe(content, media !== null) }, ...(media ? [media] : [])],
-      config: {
-        systemInstruction: SYSTEM_PROMPT,
-        responseMimeType: "application/json",
-        responseSchema: RESPONSE_SCHEMA,
-      },
-    });
+    let lastError: unknown;
+    for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+      try {
+        const response = await this.client.models.generateContent({
+          model: this.model,
+          contents,
+          config: {
+            systemInstruction: SYSTEM_PROMPT,
+            responseMimeType: "application/json",
+            responseSchema: RESPONSE_SCHEMA,
+          },
+        });
+        const text = response.text;
+        if (!text) throw new Error("scorer: model returned no output");
+        return this.toOutcome(outputSchema.parse(JSON.parse(text)));
+      } catch (e) {
+        lastError = e;
+        const transient = e instanceof GenAiApiError && TRANSIENT_STATUSES.has(e.status);
+        if (!transient || attempt === RETRY_DELAYS_MS.length) break;
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[attempt]));
+      }
+    }
 
-    const text = response.text;
-    if (!text) throw new Error("scorer: model returned no output");
-    return this.toOutcome(outputSchema.parse(JSON.parse(text)));
+    // A clear, retryable message reaches the poster instead of a generic
+    // "internal error" — this is Gemini's own capacity/quota, not a bug here,
+    // so 503 (not 500) is the honest status to hand back.
+    if (lastError instanceof GenAiApiError && TRANSIENT_STATUSES.has(lastError.status)) {
+      throw new ApiError(503, "AI scoring is temporarily busy — try posting again in a moment.");
+    }
+    throw lastError;
   }
 
   /** A fresh, unguessable per-call delimiter — see SYSTEM_PROMPT's untrusted-input warning. */
