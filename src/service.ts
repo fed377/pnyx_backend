@@ -10,7 +10,7 @@ import {
 import { affinity, rankReels } from "./core/feed";
 import { GRID_IDS, nearestPoint, orientationOf } from "./core/grids";
 import type { GridId, Positions, Vote, VotePower } from "./core/types";
-import { ApiError, bucketOf } from "./domain";
+import { ageOn, ApiError, bucketOf, MIN_AGE } from "./domain";
 import type { ContentRow, ProfileRow } from "./domain";
 import { mimeKind, pathBelongsTo, type MediaStore } from "./media";
 import { NullPushSender, type PushSender } from "./push";
@@ -19,20 +19,6 @@ import type { ContentScorer, ScorableContent } from "./scoring/scorer";
 
 /** Spec §6.5: privacy tier can change at most once per this period. */
 const TIER_CHANGE_COOLDOWN_MS = 30 * 24 * 60 * 60 * 1000;
-
-/** Matches pnyx-native's Onboarding.tsx — kept in sync by hand since this
- * isn't part of the core-mirrored algorithm files. */
-const MIN_AGE = 16;
-
-function ageOn(birthday: string, today = new Date()): number {
-  const birth = new Date(`${birthday}T00:00:00Z`);
-  let age = today.getUTCFullYear() - birth.getUTCFullYear();
-  const beforeBirthdayThisYear =
-    today.getUTCMonth() < birth.getUTCMonth() ||
-    (today.getUTCMonth() === birth.getUTCMonth() && today.getUTCDate() < birth.getUTCDate());
-  if (beforeBirthdayThisYear) age -= 1;
-  return age;
-}
 
 export type IdentitySummary = {
   code: string | null;
@@ -367,10 +353,11 @@ export class PnyxService {
   async updateProfile(userId: string, patch: Partial<ProfileRow>): Promise<PublicProfile> {
     const current = await this.repo.getProfile(userId);
     if (!current) throw new ApiError(404, "no such profile");
-    // The age gate used to live only in Onboarding.tsx — a client that
-    // skipped it and PATCHed onboarded=true directly bypassed it entirely.
-    // Enforced here instead, at the one place onboarding actually completes
-    // server-side, regardless of which client (or none) got there.
+    // Birthday (and the age it implies) is now collected and enforced at
+    // /auth/signup, so this never fires for an account created going
+    // forward — kept as a server-side backstop for any client that still
+    // completes onboarding via PATCH instead, so age enforcement never
+    // depends on which client (or none) got there.
     if (patch.onboarded === true && !current.onboarded) {
       const birthday = patch.birthday ?? current.birthday;
       if (!birthday) throw new ApiError(400, "a birthday is required to complete onboarding");

@@ -1,5 +1,19 @@
 import type { GridId, Positions, PrivacyTier, Scores, VotePower } from "./core/types";
 
+/** Matches pnyx-native's account-creation screen — kept in sync by hand
+ * since this isn't part of the core-mirrored algorithm files. */
+export const MIN_AGE = 16;
+
+export function ageOn(birthday: string, today = new Date()): number {
+  const birth = new Date(`${birthday}T00:00:00Z`);
+  let age = today.getUTCFullYear() - birth.getUTCFullYear();
+  const beforeBirthdayThisYear =
+    today.getUTCMonth() < birth.getUTCMonth() ||
+    (today.getUTCMonth() === birth.getUTCMonth() && today.getUTCDate() < birth.getUTCDate());
+  if (beforeBirthdayThisYear) age -= 1;
+  return age;
+}
+
 export type ProfileRow = {
   id: string;
   handle: string;

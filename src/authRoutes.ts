@@ -3,11 +3,17 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { requireUser } from "./auth";
 import { config } from "./config";
-import { ApiError } from "./domain";
+import { ageOn, ApiError, MIN_AGE } from "./domain";
 
 /** Matches the handle format enforced elsewhere (routes.ts's profilePatch, the 0001 schema check). */
 const HANDLE_RE = /^[a-z0-9._]+$/i;
 const handleField = z.string().min(2).max(30).regex(HANDLE_RE);
+
+/** YYYY-MM-DD, matching what the create-account screen sends. */
+const birthdayField = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine((v) => !Number.isNaN(new Date(`${v}T00:00:00Z`).getTime()), "invalid date");
 
 const signUpCredentials = z.object({
   email: z.string().email(),
@@ -17,6 +23,10 @@ const signUpCredentials = z.object({
    * Travels through signUp's user_metadata into the handle_new_user trigger
    * (migration 0012) — falls back to an email-derived handle if omitted. */
   handle: handleField.optional(),
+  /** Collected on the create-account screen now, not a separate onboarding
+   * step — checked against MIN_AGE below before the account is even
+   * created, then written onto the new profile row once it exists. */
+  birthday: birthdayField,
 });
 
 /** Login accepts either an email or a handle — resolved to an email below,
@@ -123,13 +133,24 @@ export function registerAuthRoutes(app: FastifyInstance) {
   };
 
   app.post("/auth/signup", BRUTE_FORCE_GUARD, async (req, reply) => {
-    const { email, password, name, handle } = signUpCredentials.parse(req.body);
+    const { email, password, name, handle, birthday } = signUpCredentials.parse(req.body);
+    // Checked before the account is even created — no orphan under-16
+    // accounts left behind by a rejected signup.
+    if (ageOn(birthday) < MIN_AGE) {
+      throw new ApiError(403, `you must be at least ${MIN_AGE} to use PNYX`);
+    }
     const { data, error } = await auth().auth.signUp({
       email,
       password,
       options: { data: { ...(name ? { name } : {}), ...(handle ? { handle } : {}) } },
     });
     if (error) throw new ApiError(400, error.message);
+    // The profiles row is created by the on_auth_user_created trigger, which
+    // doesn't know about birthday — set it directly here, along with
+    // onboarded (there's no separate onboarding step to complete any more).
+    if (data.user) {
+      await auth().from("profiles").update({ birthday, onboarded: true }).eq("id", data.user.id);
+    }
     // With email confirmation enabled Supabase returns a user but no session.
     if (!data.session) {
       return reply.code(202).send({ pending: true, message: "check your email to confirm the account" });
