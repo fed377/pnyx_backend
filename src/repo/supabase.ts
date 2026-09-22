@@ -28,6 +28,7 @@ type ProfileRecord = {
   grid_public: Record<GridId, boolean>;
   premium: boolean;
   onboarded: boolean;
+  birthday: string | null;
   notif_prefs: ProfileRow["notifPrefs"];
   created_at: string;
 };
@@ -83,6 +84,7 @@ const toProfile = (r: ProfileRecord): ProfileRow => ({
   gridPublic: r.grid_public,
   premium: r.premium,
   onboarded: r.onboarded,
+  birthday: r.birthday,
   notifPrefs: r.notif_prefs,
   createdAt: r.created_at,
 });
@@ -272,6 +274,7 @@ export class SupabaseRepository implements Repository {
     }
     if (patch.gridPublic !== undefined) record.grid_public = patch.gridPublic;
     if (patch.onboarded !== undefined) record.onboarded = patch.onboarded;
+    if (patch.birthday !== undefined) record.birthday = patch.birthday;
     if (patch.notifPrefs !== undefined) record.notif_prefs = patch.notifPrefs;
 
     const data = unwrap(
@@ -479,6 +482,41 @@ export class SupabaseRepository implements Repository {
         .eq("followee_id", followeeId);
       if (error) throw new Error(`unfollow: ${error.message}`);
     }
+  }
+
+  async listBlocked(userId: string) {
+    const data = unwrap(
+      await this.db.from("blocks").select("blocked_id").eq("blocker_id", userId),
+      "listBlocked",
+    );
+    return (data as { blocked_id: string }[]).map((r) => r.blocked_id);
+  }
+
+  async listBlockedBy(userId: string) {
+    const data = unwrap(
+      await this.db.from("blocks").select("blocker_id").eq("blocked_id", userId),
+      "listBlockedBy",
+    );
+    return (data as { blocker_id: string }[]).map((r) => r.blocker_id);
+  }
+
+  async setBlock(blockerId: string, blockedId: string, blocked: boolean) {
+    if (blocked) {
+      const { error } = await this.db
+        .from("blocks")
+        .upsert({ blocker_id: blockerId, blocked_id: blockedId }, { onConflict: "blocker_id,blocked_id" });
+      if (error) throw new Error(`setBlock: ${error.message}`);
+    } else {
+      const { error } = await this.db.from("blocks").delete().eq("blocker_id", blockerId).eq("blocked_id", blockedId);
+      if (error) throw new Error(`unblock: ${error.message}`);
+    }
+  }
+
+  async insertContentReport(input: { reporterId: string; contentId: string; reason: string }) {
+    const { error } = await this.db
+      .from("content_reports")
+      .insert({ reporter_id: input.reporterId, content_id: input.contentId, reason: input.reason });
+    if (error) throw new Error(`insertContentReport: ${error.message}`);
   }
 
   /** Deleting the auth user cascades through every table (see the migration). */

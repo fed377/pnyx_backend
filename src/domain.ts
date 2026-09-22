@@ -25,6 +25,11 @@ export type ProfileRow = {
    * sign-out or a second device had no way to know was already true.
    */
   onboarded: boolean;
+  /** ISO date (YYYY-MM-DD), self-reported. Null until Onboarding sets it —
+   * `PnyxService.updateProfile` requires it (and enforces the minimum age)
+   * before `onboarded` can be set to true. Nobody else's business — stripped
+   * from anyone else's viewed or ranked profile, same as notifPrefs. */
+  birthday: string | null;
   /** Which of the notification kinds a push should actually go out for.
    * "follow" has no toggle — there was never a Settings row for it, so it
    * always sends. */

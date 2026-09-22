@@ -20,13 +20,27 @@ import type { ContentScorer, ScorableContent } from "./scoring/scorer";
 /** Spec §6.5: privacy tier can change at most once per this period. */
 const TIER_CHANGE_COOLDOWN_MS = 30 * 24 * 60 * 60 * 1000;
 
+/** Matches pnyx-native's Onboarding.tsx — kept in sync by hand since this
+ * isn't part of the core-mirrored algorithm files. */
+const MIN_AGE = 16;
+
+function ageOn(birthday: string, today = new Date()): number {
+  const birth = new Date(`${birthday}T00:00:00Z`);
+  let age = today.getUTCFullYear() - birth.getUTCFullYear();
+  const beforeBirthdayThisYear =
+    today.getUTCMonth() < birth.getUTCMonth() ||
+    (today.getUTCMonth() === birth.getUTCMonth() && today.getUTCDate() < birth.getUTCDate());
+  if (beforeBirthdayThisYear) age -= 1;
+  return age;
+}
+
 export type IdentitySummary = {
   code: string | null;
   conviction: number;
   grids: Record<GridId, { name: string; orientation: string; meaning: string; hex?: string; animal?: string }>;
 };
 
-export type PublicProfile = Omit<ProfileRow, "notifPrefs"> & {
+export type PublicProfile = Omit<ProfileRow, "notifPrefs" | "birthday"> & {
   positions: Positions | null;
   voteCount: number;
   unlocked: boolean;
@@ -35,6 +49,8 @@ export type PublicProfile = Omit<ProfileRow, "notifPrefs"> & {
   /** How *this account* wants to be notified — present only on your own `/me`,
    * never on someone else's viewed or ranked profile. */
   notifPrefs?: ProfileRow["notifPrefs"];
+  /** Present only on your own `/me` — nobody else's business. */
+  birthday?: ProfileRow["birthday"];
 };
 
 function summarise(positions: Positions, unlocked: boolean): IdentitySummary | null {
@@ -284,9 +300,9 @@ export class PnyxService {
     for (const g of GRID_IDS) if (profile.gridPublic[g]) visible[g] = perGrid[g];
 
     const hidden = profile.privacyTier === "private";
-    // notifPrefs is how *this account* wants to be notified — meaningless,
-    // and not this viewer's business, on anyone else's profile.
-    const { notifPrefs: _notifPrefs, ...publicProfile } = profile;
+    // notifPrefs is how *this account* wants to be notified, and birthday is
+    // nobody else's business either — neither belongs on anyone else's profile.
+    const { notifPrefs: _notifPrefs, birthday: _birthday, ...publicProfile } = profile;
     return {
       ...publicProfile,
       positions: hidden ? null : target.positions,
@@ -311,16 +327,18 @@ export class PnyxService {
    * window it was scoped to.
    */
   async mostAligned(userId: string, limit: number, query?: string) {
-    const [viewer, others, following, followers] = await Promise.all([
+    const [viewer, others, following, followers, hidden] = await Promise.all([
       this.repo.getPositions(userId),
       this.repo.listProfiles(userId),
       this.repo.listFollowing(userId),
       this.repo.listFollowers(userId),
+      this.blockedEitherWay(userId),
     ]);
     const q = query?.trim().toLowerCase();
+    const visible = others.filter((p) => !hidden.has(p.id));
     const candidates = q
-      ? others.filter((p) => p.name.toLowerCase().includes(q) || p.handle.toLowerCase().includes(q))
-      : others;
+      ? visible.filter((p) => p.name.toLowerCase().includes(q) || p.handle.toLowerCase().includes(q))
+      : visible;
     const positions = await this.repo.listPositions(candidates.map((p) => p.id));
     const byId = new Map(positions.map((p) => [p.userId, p]));
     const iFollow = new Set(following);
@@ -329,8 +347,8 @@ export class PnyxService {
     return candidates
       .map((profile) => {
         const row = byId.get(profile.id)!;
-        // notifPrefs is nobody else's business — see viewProfile's own comment.
-        const { notifPrefs: _notifPrefs, ...publicProfile } = profile;
+        // notifPrefs and birthday are nobody else's business — see viewProfile's own comment.
+        const { notifPrefs: _notifPrefs, birthday: _birthday, ...publicProfile } = profile;
         return {
           profile: publicProfile,
           total: totalAlignment(viewer.positions, row.positions),
@@ -349,6 +367,17 @@ export class PnyxService {
   async updateProfile(userId: string, patch: Partial<ProfileRow>): Promise<PublicProfile> {
     const current = await this.repo.getProfile(userId);
     if (!current) throw new ApiError(404, "no such profile");
+    // The age gate used to live only in Onboarding.tsx — a client that
+    // skipped it and PATCHed onboarded=true directly bypassed it entirely.
+    // Enforced here instead, at the one place onboarding actually completes
+    // server-side, regardless of which client (or none) got there.
+    if (patch.onboarded === true && !current.onboarded) {
+      const birthday = patch.birthday ?? current.birthday;
+      if (!birthday) throw new ApiError(400, "a birthday is required to complete onboarding");
+      if (ageOn(birthday) < MIN_AGE) {
+        throw new ApiError(403, `you must be at least ${MIN_AGE} to use PNYX`);
+      }
+    }
     if (patch.privacyTier !== undefined) {
       if (patch.privacyTier === current.privacyTier) {
         // Not an actual change — strip it so the repo never bumps
@@ -379,29 +408,68 @@ export class PnyxService {
     }
   }
 
+  /* ── Trust & safety ───────────────────────────────────────────────────────── */
+
+  /** Union of who `userId` has blocked and who has blocked `userId` — hiding
+   * is always mutual, regardless of which side initiated it. */
+  private async blockedEitherWay(userId: string): Promise<Set<string>> {
+    const [blocked, blockedBy] = await Promise.all([
+      this.repo.listBlocked(userId),
+      this.repo.listBlockedBy(userId),
+    ]);
+    return new Set([...blocked, ...blockedBy]);
+  }
+
+  async setBlock(blockerId: string, blockedId: string, blocked: boolean) {
+    if (blockerId === blockedId) throw new ApiError(400, "you cannot block yourself");
+    const target = await this.repo.getProfile(blockedId);
+    if (!target) throw new ApiError(404, "no such profile");
+    await this.repo.setBlock(blockerId, blockedId, blocked);
+    if (blocked) {
+      // A block implies you don't want to follow or be followed by them
+      // either — both directions, both no-ops if not currently following.
+      await Promise.all([
+        this.repo.setFollow(blockerId, blockedId, false),
+        this.repo.setFollow(blockedId, blockerId, false),
+      ]);
+    }
+  }
+
+  /** No admin surface exists yet (see MISSING_FEATURES.md) — this just logs
+   * the report for an operator to review directly against the store, same as
+   * moderation strikes before they had one. */
+  async reportContent(reporterId: string, contentId: string, reason: string) {
+    const content = await this.repo.getContent(contentId);
+    if (!content) throw new ApiError(404, "no such content");
+    await this.repo.insertContentReport({ reporterId, contentId, reason });
+  }
+
   /* ── Feeds ──────────────────────────────────────────────────────────────── */
 
   /** Spec §6.2: reels only, ranked by the recommender. */
   async reels(userId: string, limit = 30) {
-    const [{ positions, voteCount }, rows] = await Promise.all([
+    const [{ positions, voteCount }, rows, hidden] = await Promise.all([
       this.repo.getPositions(userId).then((r) => ({ positions: r.positions, voteCount: r.voteCount })),
       this.repo.listContent({ type: "video", moderationStatus: "approved" }),
+      this.blockedEitherWay(userId),
     ]);
     // Your own reels are included — spec §5 forbids *voting* on them, not seeing
     // them, and Home already lists your own posts. The client disables the vote
     // controls. Filter by `r.authorId !== userId` here if that changes.
-    return rankReels(rows, positions, voteCount, (c) => c.tallies).slice(0, limit);
+    const visible = rows.filter((r) => !hidden.has(r.authorId));
+    return rankReels(visible, positions, voteCount, (c) => c.tallies).slice(0, limit);
   }
 
   /** Spec §6.1: image and text posts, people you follow first. */
   async home(userId: string, limit = 40) {
-    const [rows, following] = await Promise.all([
+    const [rows, following, hidden] = await Promise.all([
       this.repo.listContent({ types: ["image", "text"], moderationStatus: "approved" }),
       this.repo.listFollowing(userId),
+      this.blockedEitherWay(userId),
     ]);
     const follows = new Set(following);
     return rows
-      .slice()
+      .filter((r) => !hidden.has(r.authorId))
       .sort((a, b) => {
         const rank = (r: ContentRow) => (r.authorId === userId || follows.has(r.authorId) ? 0 : 1);
         const d = rank(a) - rank(b);
@@ -581,6 +649,9 @@ export class PnyxService {
     if (userId === otherUserId) throw new ApiError(400, "you cannot message yourself");
     const other = await this.repo.getProfile(otherUserId);
     if (!other) throw new ApiError(404, "no such profile");
+    if ((await this.blockedEitherWay(userId)).has(otherUserId)) {
+      throw new ApiError(403, "you can't message this person");
+    }
     const convo = await this.repo.getOrCreateConversation(userId, otherUserId);
     const messages = await this.repo.listMessages(convo.id);
     return { conversationId: convo.id, otherUserId, messages };
@@ -605,7 +676,11 @@ export class PnyxService {
     input: { body?: string; contentId?: string; votePower?: VotePower },
   ) {
     if (!input.body && !input.contentId) throw new ApiError(400, "a message needs text or a forwarded post");
-    await this.requireParticipant(userId, conversationId);
+    const convo = await this.requireParticipant(userId, conversationId);
+    const otherUserId = convo.userA === userId ? convo.userB : convo.userA;
+    if ((await this.blockedEitherWay(userId)).has(otherUserId)) {
+      throw new ApiError(403, "you can't message this person");
+    }
     if (input.contentId && !(await this.repo.getContent(input.contentId))) {
       throw new ApiError(404, "no such content to forward");
     }

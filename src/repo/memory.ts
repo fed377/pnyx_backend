@@ -26,6 +26,8 @@ export class MemoryRepository implements Repository {
   private content = new Map<string, ContentRow>();
   private votes = new Map<string, VoteRow>(); // `${userId}:${contentId}`
   private follows = new Set<string>(); // `${follower}:${followee}`
+  private blocks = new Set<string>(); // `${blocker}:${blocked}`
+  private contentReports: { reporterId: string; contentId: string; reason: string }[] = [];
   private strikes = new Map<string, number>();
   private comments = new Map<string, CommentRow>();
   private commentVotes = new Map<string, 1 | -1>(); // `${commentId}:${userId}`
@@ -53,6 +55,7 @@ export class MemoryRepository implements Repository {
       gridPublic: { values: true, mind: true, soul: true, culture: false, focus: true },
       premium: false,
       onboarded: true,
+      birthday: null,
       notifPrefs: { votes: true, replies: true, alignments: false },
       createdAt: new Date().toISOString(),
     });
@@ -76,6 +79,7 @@ export class MemoryRepository implements Repository {
         gridPublic: { values: true, mind: true, soul: true, culture: true, focus: true },
         premium: false,
         onboarded: true,
+        birthday: null,
         notifPrefs: { votes: true, replies: true, alignments: false },
         createdAt: new Date().toISOString(),
       });
@@ -246,6 +250,24 @@ export class MemoryRepository implements Repository {
     else this.follows.delete(key);
   }
 
+  async listBlocked(userId: string) {
+    return [...this.blocks].filter((k) => k.startsWith(`${userId}:`)).map((k) => k.split(":")[1]);
+  }
+
+  async listBlockedBy(userId: string) {
+    return [...this.blocks].filter((k) => k.endsWith(`:${userId}`)).map((k) => k.split(":")[0]);
+  }
+
+  async setBlock(blockerId: string, blockedId: string, blocked: boolean) {
+    const key = `${blockerId}:${blockedId}`;
+    if (blocked) this.blocks.add(key);
+    else this.blocks.delete(key);
+  }
+
+  async insertContentReport(input: { reporterId: string; contentId: string; reason: string }) {
+    this.contentReports.push(input);
+  }
+
   async deleteUser(userId: string) {
     this.profiles.delete(userId);
     this.positions.delete(userId);
@@ -253,6 +275,9 @@ export class MemoryRepository implements Repository {
     for (const [k, v] of this.content) if (v.authorId === userId) this.content.delete(k);
     for (const k of this.follows) {
       if (k.startsWith(`${userId}:`) || k.endsWith(`:${userId}`)) this.follows.delete(k);
+    }
+    for (const k of this.blocks) {
+      if (k.startsWith(`${userId}:`) || k.endsWith(`:${userId}`)) this.blocks.delete(k);
     }
     this.strikes.delete(userId);
     for (const [k, v] of this.comments) if (v.authorId === userId) this.comments.delete(k);

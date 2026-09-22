@@ -402,6 +402,57 @@ describe("contributing", () => {
   });
 });
 
+describe("onboarding age gate", () => {
+  // Seeded profiles start onboarded=true; these tests exercise the
+  // not-yet-onboarded transition directly against the repo, since there's no
+  // real signup flow to drive it through in these tests.
+  beforeEach(async () => {
+    await repo.updateProfile(ME, { onboarded: false, birthday: null });
+  });
+
+  it("refuses to complete onboarding with no birthday on file", async () => {
+    await expect(service.updateProfile(ME, { onboarded: true })).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("refuses to complete onboarding under the minimum age", async () => {
+    const fifteenYearsAgo = new Date();
+    fifteenYearsAgo.setFullYear(fifteenYearsAgo.getFullYear() - 15);
+    const birthday = fifteenYearsAgo.toISOString().slice(0, 10);
+    await expect(
+      service.updateProfile(ME, { onboarded: true, birthday }),
+    ).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("completes onboarding at exactly the minimum age", async () => {
+    const sixteenYearsAgo = new Date();
+    sixteenYearsAgo.setFullYear(sixteenYearsAgo.getFullYear() - 16);
+    const birthday = sixteenYearsAgo.toISOString().slice(0, 10);
+    const after = await service.updateProfile(ME, { onboarded: true, birthday });
+    expect(after.onboarded).toBe(true);
+  });
+
+  it("accepts a birthday already on file, without it being in the same patch", async () => {
+    const twentyYearsAgo = new Date();
+    twentyYearsAgo.setFullYear(twentyYearsAgo.getFullYear() - 20);
+    await repo.updateProfile(ME, { birthday: twentyYearsAgo.toISOString().slice(0, 10) });
+    const after = await service.updateProfile(ME, { onboarded: true });
+    expect(after.onboarded).toBe(true);
+  });
+
+  it("never exposes birthday on someone else's viewed or ranked profile", async () => {
+    const twentyYearsAgo = new Date();
+    twentyYearsAgo.setFullYear(twentyYearsAgo.getFullYear() - 20);
+    const birthday = twentyYearsAgo.toISOString().slice(0, 10);
+    await service.updateProfile(ME, { onboarded: true, birthday });
+
+    const viewed = await service.viewProfile("mara", ME);
+    expect(viewed.birthday).toBeUndefined();
+
+    const ranked = await service.mostAligned("mara", 10);
+    expect(ranked.find((r) => r.profile.id === ME)!.profile).not.toHaveProperty("birthday");
+  });
+});
+
 describe("privacy tier changes", () => {
   it("allows a brand-new account's first tier change with no cooldown", async () => {
     const before = await service.me(ME);
@@ -686,6 +737,70 @@ describe("push notifications", () => {
   });
 });
 
+describe("trust & safety", () => {
+  describe("blocking", () => {
+    it("refuses to block yourself", async () => {
+      await expect(service.setBlock(ME, ME, true)).rejects.toMatchObject({ status: 400 });
+    });
+
+    it("hides a blocked author's content from reels, home, and people search, for both sides", async () => {
+      await repo.updateProfile("mara", { privacyTier: "speaker" });
+      const reel = await post(service, "mara", "Something mara thinks.", ["values"], "video");
+      const image = await post(service, "mara", "Something mara posted.", ["values"]);
+
+      await service.setBlock(ME, "mara", true);
+
+      const reels = await service.reels(ME, 100);
+      expect(reels.some((r) => r.id === reel.id)).toBe(false);
+      const home = await service.home(ME, 100);
+      expect(home.some((r) => r.id === image.id)).toBe(false);
+      const people = await service.mostAligned(ME, 50);
+      expect(people.some((p) => p.profile.id === "mara")).toBe(false);
+
+      // Mutual: mara doesn't see ME in People either, whichever side blocked.
+      const maraPeople = await service.mostAligned("mara", 50);
+      expect(maraPeople.some((p) => p.profile.id === ME)).toBe(false);
+    });
+
+    it("unfollows both directions when blocking", async () => {
+      await service.setFollow(ME, "mara", true);
+      await service.setFollow("mara", ME, true);
+      await service.setBlock(ME, "mara", true);
+      expect(await repo.listFollowing(ME)).not.toContain("mara");
+      expect(await repo.listFollowing("mara")).not.toContain(ME);
+    });
+
+    it("refuses to start a conversation with someone you've blocked, or who has blocked you", async () => {
+      await service.setBlock(ME, "mara", true);
+      await expect(service.openConversation(ME, "mara")).rejects.toMatchObject({ status: 403 });
+      await expect(service.openConversation("mara", ME)).rejects.toMatchObject({ status: 403 });
+    });
+
+    it("refuses to send into an existing conversation once either side blocks the other", async () => {
+      const { conversationId } = await service.openConversation(ME, "mara");
+      await service.setBlock("mara", ME, true);
+      await expect(service.sendMessage(ME, conversationId, { body: "hi" })).rejects.toMatchObject({ status: 403 });
+    });
+
+    it("restores visibility on unblock", async () => {
+      await service.setBlock(ME, "mara", true);
+      await service.setBlock(ME, "mara", false);
+      const people = await service.mostAligned(ME, 50);
+      expect(people.some((p) => p.profile.id === "mara")).toBe(true);
+    });
+  });
+
+  describe("reporting content", () => {
+    it("logs a report against real content", async () => {
+      await expect(service.reportContent(ME, "c01", "spam")).resolves.toBeUndefined();
+    });
+
+    it("refuses to report content that doesn't exist", async () => {
+      await expect(service.reportContent(ME, "does-not-exist", "spam")).rejects.toMatchObject({ status: 404 });
+    });
+  });
+});
+
 describe("messages", () => {
   it("opens the same conversation from either side, and lists it for both participants", async () => {
     const opened = await service.openConversation(ME, "mara");
@@ -788,6 +903,18 @@ describe("http layer", () => {
   it("rejects unauthenticated requests", async () => {
     const res = await app().inject({ method: "GET", url: "/me" });
     expect(res.statusCode).toBe(401);
+  });
+
+  it("serves the Terms of Service and Privacy Policy without auth", async () => {
+    const terms = await app().inject({ method: "GET", url: "/legal/terms" });
+    expect(terms.statusCode).toBe(200);
+    expect(terms.headers["content-type"]).toMatch(/text\/html/);
+    expect(terms.body).toContain("Terms of Service");
+
+    const privacy = await app().inject({ method: "GET", url: "/legal/privacy" });
+    expect(privacy.statusCode).toBe(200);
+    expect(privacy.headers["content-type"]).toMatch(/text\/html/);
+    expect(privacy.body).toContain("Privacy Policy");
   });
 
   it("cannot be used to self-grant premium — there is no route for it", async () => {
@@ -895,17 +1022,17 @@ describe("http layer", () => {
       const res = await app().inject({
         method: "POST",
         url: "/auth/forgot-password",
-        payload: { email: "someone@example.com", redirect: "https://evil.example.com" },
+        payload: { identifier: "someone@example.com", redirect: "https://evil.example.com" },
       });
       expect(res.statusCode).toBe(400);
     });
 
     it("responds the same way whether or not the email is registered — no user-enumeration leak", async () => {
-      const send = (email: string) =>
+      const send = (identifier: string) =>
         app().inject({
           method: "POST",
           url: "/auth/forgot-password",
-          payload: { email, redirect: "expo://192.168.1.5:8081/--/auth-callback" },
+          payload: { identifier, redirect: "expo://192.168.1.5:8081/--/auth-callback" },
         });
       const known = await send("definitely-not-registered@example.com");
       const unknown = await send("also-not-registered@example.com");
@@ -930,7 +1057,7 @@ describe("http layer", () => {
         instance.inject({
           method: "POST",
           url: "/auth/forgot-password",
-          payload: { email: "someone@example.com", redirect: "expo://192.168.1.5:8081/--/auth-callback" },
+          payload: { identifier: "someone@example.com", redirect: "expo://192.168.1.5:8081/--/auth-callback" },
         });
       const responses = [];
       for (let i = 0; i < 11; i++) responses.push(await send());

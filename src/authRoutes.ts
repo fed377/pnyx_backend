@@ -5,11 +5,28 @@ import { requireUser } from "./auth";
 import { config } from "./config";
 import { ApiError } from "./domain";
 
-const credentials = z.object({
+/** Matches the handle format enforced elsewhere (routes.ts's profilePatch, the 0001 schema check). */
+const HANDLE_RE = /^[a-z0-9._]+$/i;
+const handleField = z.string().min(2).max(30).regex(HANDLE_RE);
+
+const signUpCredentials = z.object({
   email: z.string().email(),
   password: z.string().min(8).max(200),
   name: z.string().min(1).max(80).optional(),
+  /** Chosen on the create-account screen, live-checked via /auth/handle-check.
+   * Travels through signUp's user_metadata into the handle_new_user trigger
+   * (migration 0012) — falls back to an email-derived handle if omitted. */
+  handle: handleField.optional(),
 });
+
+/** Login accepts either an email or a handle — resolved to an email below,
+ * since Supabase's own signInWithPassword only ever takes one. */
+const signInCredentials = z.object({
+  identifier: z.string().min(2).max(254),
+  password: z.string().min(8).max(200),
+});
+
+const handleCheckQuery = z.object({ handle: handleField });
 
 const refresh = z.object({ refreshToken: z.string().min(10) });
 
@@ -24,8 +41,9 @@ const oauthQuery = z.object({ redirect: z.string().min(1).max(500) });
 
 const googleToken = z.object({ idToken: z.string().min(10) });
 
+/** Accepts an email or a handle, like signin — resolved the same way below. */
 const forgotPassword = z.object({
-  email: z.string().email(),
+  identifier: z.string().min(1).max(254),
   redirect: z.string().min(1).max(500),
 });
 
@@ -88,12 +106,28 @@ export function registerAuthRoutes(app: FastifyInstance) {
   const bridgeFor = (req: FastifyRequest, redirect: string) =>
     `${req.protocol}://${req.hostname}/auth/mobile-redirect?to=${encodeURIComponent(redirect)}`;
 
+  /**
+   * Handle -> email, for logging in (or requesting a password reset) with a
+   * handle. Not authenticated (there's no session yet), so this only ever
+   * needs the profiles table, not the repository layer. Returns null rather
+   * than throwing on a miss — callers turn that into the same generic
+   * response a wrong password/unregistered email already gets, so a
+   * mistyped handle can't be told apart from either (no account-existence
+   * leak either way).
+   */
+  const emailForHandle = async (handle: string): Promise<string | null> => {
+    const { data: profile } = await auth().from("profiles").select("id").eq("handle", handle).maybeSingle();
+    if (!profile) return null;
+    const { data: userData } = await auth().auth.admin.getUserById(profile.id);
+    return userData.user?.email ?? null;
+  };
+
   app.post("/auth/signup", BRUTE_FORCE_GUARD, async (req, reply) => {
-    const { email, password, name } = credentials.parse(req.body);
+    const { email, password, name, handle } = signUpCredentials.parse(req.body);
     const { data, error } = await auth().auth.signUp({
       email,
       password,
-      options: { data: name ? { name } : {} },
+      options: { data: { ...(name ? { name } : {}), ...(handle ? { handle } : {}) } },
     });
     if (error) throw new ApiError(400, error.message);
     // With email confirmation enabled Supabase returns a user but no session.
@@ -104,10 +138,21 @@ export function registerAuthRoutes(app: FastifyInstance) {
   });
 
   app.post("/auth/signin", BRUTE_FORCE_GUARD, async (req) => {
-    const { email, password } = credentials.parse(req.body);
+    const { identifier, password } = signInCredentials.parse(req.body);
+    const email = identifier.includes("@") ? identifier : await emailForHandle(identifier);
+    if (!email) throw new ApiError(401, "Invalid login credentials");
     const { data, error } = await auth().auth.signInWithPassword({ email, password });
     if (error) throw new ApiError(401, error.message);
     return toSession({ session: data.session, user: data.user });
+  });
+
+  /** Live "is this handle free" check for the create-account screen. Public
+   * and unauthenticated — same reasoning as emailForHandle above, and handle
+   * existence is already visible via People search to anyone signed in. */
+  app.get("/auth/handle-check", async (req) => {
+    const { handle } = handleCheckQuery.parse(req.query);
+    const { data: profile } = await auth().from("profiles").select("id").eq("handle", handle).maybeSingle();
+    return { available: !profile };
   });
 
   /**
@@ -195,18 +240,22 @@ export function registerAuthRoutes(app: FastifyInstance) {
 
   /**
    * Emails a recovery link (Supabase's own, routed through the same bridge
-   * page every deep-link flow in this file uses). Always returns the same
-   * response regardless of whether the email is actually registered — this
-   * is a public, unauthenticated endpoint, and confirming an email's
-   * existence here would be a user-enumeration leak.
+   * page every deep-link flow in this file uses). Accepts an email or a
+   * handle, like signin. Always returns the same response regardless of
+   * whether the account is actually registered — this is a public,
+   * unauthenticated endpoint, and confirming an account's existence here
+   * would be a user-enumeration leak.
    */
   app.post("/auth/forgot-password", BRUTE_FORCE_GUARD, async (req) => {
-    const { email, redirect } = forgotPassword.parse(req.body);
+    const { identifier, redirect } = forgotPassword.parse(req.body);
     if (!ALLOWED_REDIRECT.test(redirect)) {
       throw new ApiError(400, "unsupported redirect target");
     }
     if (config.supabaseUrl) {
-      await auth().auth.resetPasswordForEmail(email, { redirectTo: bridgeFor(req, redirect) });
+      const email = identifier.includes("@") ? identifier : await emailForHandle(identifier);
+      if (email) {
+        await auth().auth.resetPasswordForEmail(email, { redirectTo: bridgeFor(req, redirect) });
+      }
     }
     return { ok: true };
   });

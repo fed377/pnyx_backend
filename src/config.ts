@@ -51,4 +51,26 @@ export function assertConfig() {
       throw new Error("DEV_AUTH must be off when STORE=supabase: it would let anyone act as any user");
     }
   }
+
+  // Beta-readiness audit finding (blocker): STORE defaults to "memory" with no
+  // safety net — a real deployment that forgot to set STORE=supabase would
+  // boot fine and silently discard every beta user's account/votes/posts on
+  // the next restart. Gated on NODE_ENV=production (the one env var every
+  // hosting platform either sets automatically or expects you to) rather
+  // than on STORE itself, so `npm run dev` locally stays zero-config.
+  if (process.env.NODE_ENV === "production") {
+    if (config.store === "memory") {
+      throw new Error(
+        "STORE=memory in a production environment would silently discard every user's data on restart. " +
+          "Set STORE=supabase (with SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY) — or unset NODE_ENV if this really is a throwaway environment.",
+      );
+    }
+    if (!config.geminiApiKey) {
+      throw new Error(
+        "GEMINI_API_KEY is required in production: without it, every post is \"moderated\" by a fake " +
+          "non-semantic stub instead of real scoring — unmoderated content would masquerade as screened. " +
+          "Set GEMINI_API_KEY — or unset NODE_ENV if this really is a throwaway environment.",
+      );
+    }
+  }
 }

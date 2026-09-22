@@ -2,6 +2,7 @@ import type { FastifyError, FastifyInstance } from "fastify";
 import { z } from "zod";
 import { requireUser } from "./auth";
 import { registerAuthRoutes } from "./authRoutes";
+import { registerLegalRoutes } from "./legalRoutes";
 import { UNLOCK_AT } from "./core/algorithm";
 import type { VotePower } from "./core/types";
 import { ApiError } from "./domain";
@@ -35,6 +36,9 @@ const profilePatch = z.object({
   // One-way completion flag, set once by completeOnboarding() — see the
   // ProfileRow field's own comment for why this lives server-side at all.
   onboarded: z.boolean().optional(),
+  // Self-reported at onboarding — service.ts requires this (and enforces the
+  // minimum age) before `onboarded` can be set to true.
+  birthday: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   notifPrefs: z
     .object({
       votes: z.boolean(),
@@ -60,6 +64,7 @@ const newContent = z.object({
 const uploadRequest = z.object({ contentType: z.string().min(3).max(100) });
 
 const newComment = z.object({ body: z.string().min(1).max(500) });
+const contentReport = z.object({ reason: z.string().min(1).max(300) });
 const commentVote = z.object({ power: z.union([z.literal(1), z.literal(-1)]) });
 
 const newHotTake = z.object({ category: gridId, body: z.string().min(1).max(220) });
@@ -78,6 +83,7 @@ export function registerRoutes(app: FastifyInstance, service: PnyxService) {
   app.get("/health", async () => ({ ok: true, unlockAt: UNLOCK_AT }));
 
   registerAuthRoutes(app);
+  registerLegalRoutes(app);
 
   /* ── Me ───────────────────────────────────────────────────────────────── */
 
@@ -168,6 +174,20 @@ export function registerRoutes(app: FastifyInstance, service: PnyxService) {
     return { following: false };
   });
 
+  app.put("/blocks/:id", async (req) => {
+    const userId = await requireUser(req);
+    const { id } = z.object({ id: z.string().min(1) }).parse(req.params);
+    await service.setBlock(userId, id, true);
+    return { blocked: true };
+  });
+
+  app.delete("/blocks/:id", async (req) => {
+    const userId = await requireUser(req);
+    const { id } = z.object({ id: z.string().min(1) }).parse(req.params);
+    await service.setBlock(userId, id, false);
+    return { blocked: false };
+  });
+
   /* ── Contribute ───────────────────────────────────────────────────────── */
 
   /** Step one of posting: a signed URL the app PUTs the file straight to. */
@@ -240,6 +260,14 @@ export function registerRoutes(app: FastifyInstance, service: PnyxService) {
     const userId = await requireUser(req);
     const { id } = z.object({ id: z.string().min(1) }).parse(req.params);
     return { items: await service.friendVotes(userId, id) };
+  });
+
+  app.post("/content/:id/report", async (req, reply) => {
+    const userId = await requireUser(req);
+    const { id } = z.object({ id: z.string().min(1) }).parse(req.params);
+    const { reason } = contentReport.parse(req.body);
+    await service.reportContent(userId, id, reason);
+    return reply.code(202).send({ ok: true });
   });
 
   /* ── Comments ─────────────────────────────────────────────────────────── */

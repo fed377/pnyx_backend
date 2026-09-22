@@ -55,12 +55,23 @@ export interface Repository {
   listFollowers(userId: string): Promise<string[]>;
   setFollow(followerId: string, followeeId: string, following: boolean): Promise<void>;
 
+  /* blocks (trust & safety) */
+  /** Who `userId` has blocked. */
+  listBlocked(userId: string): Promise<string[]>;
+  /** Who has blocked `userId`. */
+  listBlockedBy(userId: string): Promise<string[]>;
+  setBlock(blockerId: string, blockedId: string, blocked: boolean): Promise<void>;
+
   /* GDPR */
   deleteUser(userId: string): Promise<void>;
 
   /* moderation */
   /** Logs a content-moderation strike against a user and returns their new total. */
   recordStrike(userId: string, reason: string): Promise<number>;
+  /** Logs a content report for later operator review — there's no admin
+   * surface yet (see MISSING_FEATURES.md), so these are queried directly
+   * against the store, same as moderation strikes were before this. */
+  insertContentReport(input: { reporterId: string; contentId: string; reason: string }): Promise<void>;
 
   /* comments */
   listComments(contentId: string, viewerId: string): Promise<CommentRow[]>;
