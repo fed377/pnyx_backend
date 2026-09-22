@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PNYX — Privacy Policy</title>
+<style>
+  :root { color-scheme: light; }
+  body {
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #f2f0ec;
+    color: #161513;
+    margin: 0;
+    padding: 0 20px 80px;
+  }
+  main { max-width: 640px; margin: 0 auto; }
+  h1 { font-size: 28px; margin: 48px 0 4px; letter-spacing: -0.01em; }
+  .updated { color: #6b6862; font-size: 13px; margin-bottom: 40px; }
+  h2 { font-size: 18px; margin: 40px 0 8px; }
+  h3 { font-size: 15px; margin: 20px 0 4px; }
+  p, li { color: #3a3834; font-size: 15px; }
+  ul, ol { padding-left: 20px; }
+  a { color: #161513; }
+  .placeholder { background: #fde68a33; border-radius: 4px; padding: 0 3px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #dcd9d2; font-size: 14px; vertical-align: top; }
+  th { color: #6b6862; font-weight: 600; }
+  hr { border: none; border-top: 1px solid #dcd9d2; margin: 48px 0; }
+  footer { color: #6b6862; font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Privacy Policy</h1>
+  <p class="updated">Effective <span class="placeholder">[EFFECTIVE DATE]</span> · Last updated <span class="placeholder">[EFFECTIVE DATE]</span></p>
+
+  <p>This Privacy Policy explains what personal data PNYX (operated by
+  <span class="placeholder">[LEGAL ENTITY NAME]</span>, "we," "us") collects, why, and what rights you have
+  over it. It applies to everyone who uses the PNYX app.</p>
+
+  <h2>1. Data we collect</h2>
+  <table>
+    <tr><th>Category</th><th>Examples</th><th>Source</th></tr>
+    <tr><td>Account data</td><td>Email address, hashed password (or Google account identifier), handle, name, pronouns, bio, city, birthday</td><td>You, at signup/onboarding</td></tr>
+    <tr><td>Content</td><td>Posts, comments, images/video you upload, hot takes, messages</td><td>You</td></tr>
+    <tr><td>Activity data</td><td>Votes cast, follows/blocks, alignment scores, grid positions (derived — never entered directly)</td><td>Generated from your use of the app</td></tr>
+    <tr><td>Device data</td><td>Push notification token</td><td>Your device, with permission</td></tr>
+    <tr><td>Technical data</td><td>IP address (for rate-limiting/abuse prevention), request logs</td><td>Automatically, from your device</td></tr>
+  </table>
+
+  <h2>2. How we use it</h2>
+  <ul>
+    <li>To operate the core product — computing your grid positions, recommending content, and
+    showing alignment between you and other people</li>
+    <li>To screen content you post for policy violations before it's shown to anyone else</li>
+    <li>To send you push and email notifications you've asked for (votes, replies, alignment
+    matches, password resets)</li>
+    <li>To detect and prevent abuse, spam, and violations of our Terms of Service</li>
+    <li>To respond to support requests and legal obligations (including copyright notices)</li>
+    <li>To understand how PNYX is used and improve it (aggregate product analytics — see
+    Section 4)</li>
+  </ul>
+
+  <h2>3. Content moderation and AI processing</h2>
+  <p>When you post, the text and media are sent to Google's Gemini API to be scored on PNYX's five
+  value grids and screened for policy violations, before anyone else can see the post. This
+  processing is automated. Google processes this data as our subprocessor and does not use it to
+  train its own models beyond what's disclosed in its own API terms.</p>
+
+  <h2>4. Who we share data with</h2>
+  <p>We don't sell your personal data. We share it only with the service providers that help us run
+  PNYX, each acting under contract as our data processor:</p>
+  <ul>
+    <li><strong>Supabase</strong> — database, authentication, and file storage hosting</li>
+    <li><strong>Google (Gemini API, Google Sign-In)</strong> — content scoring/moderation, and
+    optional sign-in</li>
+    <li><strong>Expo</strong> — push notification delivery</li>
+    <li><strong>Resend</strong> — transactional email (password resets, confirmations)</li>
+    <li><strong>PostHog</strong> — product analytics (e.g. which screens and features are used,
+    how long onboarding takes). Events never include post/message content or your raw vote
+    history; once you're signed in, PostHog identifies your account only by a one-way hash of
+    your account ID, never the ID itself</li>
+  </ul>
+  <p>Other users can see whatever you've chosen to make visible in your privacy settings: your
+  profile, your public posts, and (unless you've made your account Private) your grid positions and
+  the alignment percentage between you and them. Your email, password, birthday, and notification
+  preferences are never shown to anyone else.</p>
+
+  <h3>Future aggregated data products</h3>
+  <p>We may in the future offer aggregated, anonymized trend data (for example, "how a demographic
+  segment in a region skews on a given grid") to businesses or researchers. If we build this, no
+  individual will be identifiable in it, cohorts will be sized to prevent re-identification, and we
+  will update this Policy and seek any additional consent required by law before launching it. This
+  Policy does not currently authorize, and no such product exists today.</p>
+
+  <h2>5. How long we keep it</h2>
+  <p>We keep your data for as long as your account is active. If you delete your account ("Forget
+  Me" in Settings), we permanently delete your profile, votes, posts, messages, and uploaded media.
+  Some information may be retained briefly afterward where required for fraud prevention, legal
+  compliance, or dispute resolution.</p>
+
+  <h2>6. Your rights</h2>
+  <p>Depending on where you live, you may have the right to:</p>
+  <ul>
+    <li>Access the personal data we hold about you</li>
+    <li>Correct inaccurate data (most profile fields are editable directly in the app)</li>
+    <li>Delete your data ("Forget Me" in Settings, or by contacting us)</li>
+    <li>Object to or restrict certain processing</li>
+    <li>Data portability</li>
+    <li>Lodge a complaint with your local data protection authority</li>
+  </ul>
+  <p>To exercise a right not yet self-serve in the app, contact us at
+  <span class="placeholder">[CONTACT EMAIL]</span>. We'll respond within the time required by applicable
+  law.</p>
+
+  <h2>7. Children's privacy</h2>
+  <p>PNYX is not directed to, and may not be used by, anyone under 16. We don't knowingly collect
+  data from anyone under 16. If we learn we have, we'll delete it.</p>
+
+  <h2>8. International data transfers</h2>
+  <p>Our service providers may process data outside your country of residence, including in the
+  United States. Where required, we rely on appropriate safeguards (such as Standard Contractual
+  Clauses) for these transfers.</p>
+
+  <h2>9. Security</h2>
+  <p>We use industry-standard measures to protect your data, including encryption in transit,
+  access controls restricting who can read or write your data, and rate limiting against automated
+  abuse. No system is perfectly secure, and we can't guarantee absolute security.</p>
+
+  <h2>10. Changes to this Policy</h2>
+  <p>We may update this Policy from time to time. If we make material changes, we'll notify you
+  in-app or by email before they take effect.</p>
+
+  <h2>11. Contact</h2>
+  <p>Questions about this Policy, or want to exercise a privacy right? Reach us at
+  <span class="placeholder">[CONTACT EMAIL]</span>.</p>
+
+  <hr />
+  <footer>
+    See also our <a href="/legal/terms">Terms of Service</a>, <a href="/legal/eula">EULA</a>, and
+    <a href="/legal/dmca">DMCA Policy</a>.
+  </footer>
+</main>
+</body>
+</html>
