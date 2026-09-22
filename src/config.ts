@@ -28,7 +28,9 @@ export const config = {
 
   /** Spec §8 content scoring. Without it the server falls back to the deterministic stub. */
   geminiApiKey: process.env.GEMINI_API_KEY ?? "",
-  scorerModel: process.env.SCORER_MODEL ?? "gemini-2.5-flash-lite",
+  // gemini-2.5-flash-lite was retired for new API keys (Google now 404s it,
+  // pointing at 3.5) — confirmed from a live "internal error" on POST /content.
+  scorerModel: process.env.SCORER_MODEL ?? "gemini-3.5-flash-lite",
 
   /** Outbound transactional email via Resend (https://resend.com/api-keys). */
   resendApiKey: process.env.RESEND_API_KEY ?? "",

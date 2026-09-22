@@ -160,7 +160,7 @@ export class GeminiScorer implements ContentScorer {
 
   constructor(opts: GeminiScorerOptions) {
     this.client = opts.client ?? new GoogleGenAI({ apiKey: opts.apiKey });
-    this.model = opts.model ?? "gemini-2.5-flash-lite";
+    this.model = opts.model ?? "gemini-3.5-flash-lite";
   }
 
   async score(content: ScorableContent): Promise<ScoreOutcome> {
