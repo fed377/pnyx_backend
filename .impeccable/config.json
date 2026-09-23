@@ -1,0 +1,26 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "cream-palette",
+        "value": "*",
+        "files": [
+          "src/legal/eula.html"
+        ],
+        "createdAt": "2026-09-22T12:22:10.403Z",
+        "reason": "matches pre-existing terms.html/privacy.html palette (#f2f0ec) for visual consistency across the four legal pages"
+      },
+      {
+        "rule": "cream-palette",
+        "value": "*",
+        "files": [
+          "src/legal/dmca.html"
+        ],
+        "createdAt": "2026-09-22T12:22:10.859Z",
+        "reason": "matches pre-existing terms.html/privacy.html palette (#f2f0ec) for visual consistency across the four legal pages"
+      }
+    ]
+  }
+}
