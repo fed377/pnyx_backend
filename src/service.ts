@@ -353,6 +353,15 @@ export class PnyxService {
   async updateProfile(userId: string, patch: Partial<ProfileRow>): Promise<PublicProfile> {
     const current = await this.repo.getProfile(userId);
     if (!current) throw new ApiError(404, "no such profile");
+    // Must point at the caller's own uploaded media, never an arbitrary
+    // external URL — otherwise a profile becomes a tracking pixel that
+    // fires against every viewer who renders the avatar.
+    if (patch.avatarUrl !== undefined) {
+      const ownPrefix = this.media.publicUrl(`u/${userId}/`);
+      if (!patch.avatarUrl.startsWith(ownPrefix)) {
+        throw new ApiError(400, "avatarUrl must point at your own uploaded media");
+      }
+    }
     // Birthday (and the age it implies) is now collected and enforced at
     // /auth/signup, so this never fires for an account created going
     // forward — kept as a server-side backstop for any client that still
