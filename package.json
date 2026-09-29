@@ -13,7 +13,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "core:check": "node scripts/check-core.mjs",
-    "seed": "tsx scripts/seed-supabase.ts"
+    "seed": "tsx scripts/seed-supabase.ts",
+    "seed:generate": "tsx scripts/seed/generate.ts",
+    "seed:load": "tsx scripts/seed/load.ts",
+    "seed:clean": "tsx scripts/seed/clean.ts"
   },
   "dependencies": {
     "@fastify/cors": "^11.0.1",

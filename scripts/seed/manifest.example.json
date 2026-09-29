@@ -1,0 +1,127 @@
+{
+  "version": 1,
+  "seed": 1,
+  "personas": [
+    {
+      "key": "marta-lisbon",
+      "handle": "marta.rides",
+      "name": "Marta Quintela",
+      "pronouns": "she/her",
+      "bio": "Urban planner. Bikes, trams, too many opinions about crosswalks.",
+      "city": "Lisbon",
+      "tier": "speaker",
+      "birthday": "1991-04-12",
+      "truePosition": {
+        "values": { "x": 0.72, "y": -0.55 },
+        "mind": { "x": 0.6, "y": -0.3 },
+        "soul": { "x": 0.25, "y": 0.4 },
+        "culture": { "x": -0.2, "y": -0.35 },
+        "focus": { "x": 0.3, "y": 0.45 }
+      },
+      "temperament": { "activity": 0.8, "volatility": 0.25, "harshness": 0.4 },
+      "topics": ["cities", "cycling", "public space", "housing"]
+    },
+    {
+      "key": "dev-okafor",
+      "handle": "devokafor",
+      "name": "Dev Okafor",
+      "pronouns": "he/him",
+      "bio": "Founder, second time. Early gym, late emails. Ship it.",
+      "city": "Lagos",
+      "tier": "speaker",
+      "birthday": "1988-09-03",
+      "truePosition": {
+        "values": { "x": -0.7, "y": 0.2 },
+        "mind": { "x": 0.75, "y": -0.5 },
+        "soul": { "x": -0.1, "y": 0.7 },
+        "culture": { "x": -0.55, "y": -0.6 },
+        "focus": { "x": -0.85, "y": 0.35 }
+      },
+      "temperament": { "activity": 0.7, "volatility": 0.2, "harshness": 0.6 },
+      "topics": ["startups", "fitness", "discipline", "money"]
+    },
+    {
+      "key": "ines-kyoto",
+      "handle": "ines_slow",
+      "name": "Inès Moreau",
+      "pronouns": "she/her",
+      "bio": "Ceramics, old books, long walks. Translating Japanese poetry very slowly.",
+      "city": "Kyoto",
+      "tier": "speaker",
+      "birthday": "1979-01-27",
+      "truePosition": {
+        "values": { "x": 0.3, "y": 0.5 },
+        "mind": { "x": -0.65, "y": 0.45 },
+        "soul": { "x": -0.6, "y": -0.7 },
+        "culture": { "x": 0.75, "y": 0.8 },
+        "focus": { "x": 0.8, "y": -0.6 }
+      },
+      "temperament": { "activity": 0.5, "volatility": 0.35, "harshness": 0.3 },
+      "topics": ["craft", "slowness", "literature", "tradition"]
+    },
+    {
+      "key": "sam-reyes",
+      "handle": "samreyes",
+      "name": "Sam Reyes",
+      "pronouns": "they/them",
+      "bio": "Night-shift nurse. Memes at 4am.",
+      "city": "Chicago",
+      "tier": "active",
+      "birthday": "1996-06-18",
+      "truePosition": {
+        "values": { "x": 0.45, "y": -0.8 },
+        "mind": { "x": 0.5, "y": 0.6 },
+        "soul": { "x": 0.85, "y": 0.2 },
+        "culture": { "x": 0.1, "y": -0.7 },
+        "focus": { "x": 0.2, "y": 0.1 }
+      },
+      "temperament": { "activity": 0.9, "volatility": 0.45, "harshness": 0.5 },
+      "topics": ["healthcare", "internet culture", "labor"]
+    },
+    {
+      "key": "henrik-berg",
+      "handle": "henrikb",
+      "name": "Henrik Berg",
+      "pronouns": "he/him",
+      "bio": "Retired engineer. Sailing, chess, and correcting people about bridges.",
+      "city": "Bergen",
+      "tier": "active",
+      "birthday": "1956-11-02",
+      "truePosition": {
+        "values": { "x": -0.35, "y": 0.75 },
+        "mind": { "x": -0.2, "y": -0.85 },
+        "soul": { "x": -0.45, "y": -0.2 },
+        "culture": { "x": -0.1, "y": 0.6 },
+        "focus": { "x": -0.3, "y": -0.5 }
+      },
+      "temperament": { "activity": 0.6, "volatility": 0.15, "harshness": 0.7 },
+      "topics": ["engineering", "sailing", "chess"]
+    }
+  ],
+  "posts": [
+    { "key": "marta-lisbon-p1", "authorKey": "marta-lisbon", "type": "video", "text": "A city works if an eight-year-old can cross it alone.", "context": "Morning school run, Arroios", "categories": ["values", "focus"], "mediaQuery": "children crossing street" },
+    { "key": "marta-lisbon-p2", "authorKey": "marta-lisbon", "type": "image", "text": "Every parking space is a small apartment we decided to give to a car.", "categories": ["values"], "mediaQuery": "parked cars street" },
+    { "key": "marta-lisbon-p3", "authorKey": "marta-lisbon", "type": "video", "text": "Trams are slower than cars and I would still pick them every single time.", "categories": ["soul", "culture"], "mediaQuery": "tram city" },
+    { "key": "marta-lisbon-p4", "authorKey": "marta-lisbon", "type": "video", "text": "Benches are a political decision. Count them on your street and you'll see who a city is for.", "categories": ["values"], "mediaQuery": "park bench city" },
+    { "key": "marta-lisbon-p5", "authorKey": "marta-lisbon", "type": "image", "text": "Rent control treats the symptom. We still need to build way more homes.", "categories": ["values", "mind"], "mediaQuery": "apartment construction" },
+
+    { "key": "dev-okafor-p1", "authorKey": "dev-okafor", "type": "video", "text": "Motivation is overrated. Build the habit and stop checking how you feel about it.", "context": "5:40am, empty gym", "categories": ["focus", "mind"], "mediaQuery": "gym morning workout" },
+    { "key": "dev-okafor-p2", "authorKey": "dev-okafor", "type": "image", "text": "If your startup needs a pitch deck to explain why it matters, it probably doesn't.", "categories": ["mind"], "mediaQuery": "laptop office desk" },
+    { "key": "dev-okafor-p3", "authorKey": "dev-okafor", "type": "video", "text": "Work-life balance is a luxury you earn after the work pays off, not before.", "categories": ["focus", "values"], "mediaQuery": "city skyline night office" },
+    { "key": "dev-okafor-p4", "authorKey": "dev-okafor", "type": "video", "text": "Losing money on a bet you understood beats making money on one you didn't.", "categories": ["mind"], "mediaQuery": "stock chart screen" },
+    { "key": "dev-okafor-p5", "authorKey": "dev-okafor", "type": "image", "text": "Nobody remembers who played it safe.", "context": "Lagos traffic, somehow inspiring", "categories": ["soul", "focus"], "mediaQuery": "busy traffic city" },
+
+    { "key": "ines-kyoto-p1", "authorKey": "ines-kyoto", "type": "video", "text": "A bowl you made badly by hand is worth more than ten perfect ones from a factory.", "context": "Wheel day at the studio", "categories": ["culture", "focus"], "mediaQuery": "pottery wheel hands" },
+    { "key": "ines-kyoto-p2", "authorKey": "ines-kyoto", "type": "image", "text": "Reading one book slowly all year beats skimming fifty.", "categories": ["mind", "culture"], "mediaQuery": "old book reading" },
+    { "key": "ines-kyoto-p3", "authorKey": "ines-kyoto", "type": "video", "text": "Some things should stay hard to get to. That's what keeps them worth the trip.", "categories": ["culture", "values"], "mediaQuery": "mountain temple path" },
+    { "key": "ines-kyoto-p4", "authorKey": "ines-kyoto", "type": "video", "text": "Boredom is where every good idea I've had started. Stop curing it with your phone.", "categories": ["mind", "soul"], "mediaQuery": "rain window quiet" },
+    { "key": "ines-kyoto-p5", "authorKey": "ines-kyoto", "type": "image", "text": "Translations should sound foreign. Smoothing a poem into your own language erases it.", "categories": ["culture", "mind"], "mediaQuery": "calligraphy ink brush" }
+  ],
+  "comments": [
+    { "key": "marta-lisbon-p1-c1", "postKey": "marta-lisbon-p1", "authorKey": "sam-reyes", "text": "Night shift nurse here — the kids I see after car accidents would agree with this." },
+    { "key": "marta-lisbon-p1-c2", "postKey": "marta-lisbon-p1", "authorKey": "henrik-berg", "text": "Nice idea until you need to get across town with a trailer and two kayaks." },
+    { "key": "dev-okafor-p3-c1", "postKey": "dev-okafor-p3", "authorKey": "ines-kyoto", "text": "And when exactly does it pay off? The goalpost moves every year." },
+    { "key": "dev-okafor-p3-c2", "postKey": "dev-okafor-p3", "authorKey": "henrik-berg", "text": "Worked forty years. The ones who waited for balance mostly never found it." },
+    { "key": "ines-kyoto-p4-c1", "postKey": "ines-kyoto-p4", "authorKey": "dev-okafor", "text": "Counterpoint: my best ideas came from shipping and seeing what broke." }
+  ]
+}
