@@ -32,10 +32,6 @@ export const config = {
   // pointing at 3.5) — confirmed from a live "internal error" on POST /content.
   scorerModel: process.env.SCORER_MODEL ?? "gemini-3.5-flash-lite",
 
-  /** Outbound transactional email via Resend (https://resend.com/api-keys). */
-  resendApiKey: process.env.RESEND_API_KEY ?? "",
-  emailFrom: process.env.EMAIL_FROM ?? "Pnyx <onboarding@resend.dev>",
-
   /**
    * Accept `Authorization: Bearer dev:<userId>` instead of a real Supabase JWT.
    * Convenient locally, refused whenever STORE=supabase.
