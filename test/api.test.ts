@@ -1050,6 +1050,55 @@ describe("http layer", () => {
     });
   });
 
+  describe("waitlist", () => {
+    it("adds a signup, normalizing the address", async () => {
+      const store = new MemoryRepository();
+      const res = await buildServer(store, new FakeMediaStore()).inject({
+        method: "POST",
+        url: "/waitlist",
+        payload: { email: "  Someone@Example.COM ", source: "waitlist-site" },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ ok: true });
+      expect([...store.waitlist.keys()]).toEqual(["someone@example.com"]);
+      expect(store.waitlist.get("someone@example.com")?.source).toBe("waitlist-site");
+    });
+
+    it("answers a repeat signup exactly like a new one, without duplicating it", async () => {
+      const store = new MemoryRepository();
+      const instance = buildServer(store, new FakeMediaStore());
+      const send = (email: string) => instance.inject({ method: "POST", url: "/waitlist", payload: { email } });
+      const first = await send("someone@example.com");
+      const again = await send("SOMEONE@example.com");
+      expect(again.statusCode).toBe(first.statusCode);
+      expect(again.json()).toEqual(first.json());
+      expect(store.waitlist.size).toBe(1);
+    });
+
+    it("rejects something that isn't an email address", async () => {
+      const store = new MemoryRepository();
+      const res = await buildServer(store, new FakeMediaStore()).inject({
+        method: "POST",
+        url: "/waitlist",
+        payload: { email: "not-an-email" },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(store.waitlist.size).toBe(0);
+    });
+
+    it("throttles repeated signups from the same caller", async () => {
+      const instance = app();
+      const responses = [];
+      for (let i = 0; i < 6; i++) {
+        responses.push(
+          await instance.inject({ method: "POST", url: "/waitlist", payload: { email: `person${i}@example.com` } }),
+        );
+      }
+      expect(responses.filter((r) => r.statusCode === 200)).toHaveLength(5);
+      expect(responses.at(-1)!.statusCode).toBe(429);
+    });
+  });
+
   describe("rate limiting", () => {
     it("throttles repeated forgot-password requests from the same caller", async () => {
       const instance = app();

@@ -519,6 +519,16 @@ export class SupabaseRepository implements Repository {
     if (error) throw new Error(`insertContentReport: ${error.message}`);
   }
 
+  async addToWaitlist(email: string, source: string | null) {
+    const { data, error } = await this.db
+      .from("waitlist")
+      .upsert({ email, source }, { onConflict: "email", ignoreDuplicates: true })
+      .select("id");
+    if (error) throw new Error(`addToWaitlist: ${error.message}`);
+    // ignoreDuplicates turns a conflict into "insert nothing", so no row back means already listed.
+    return { added: (data ?? []).length > 0 };
+  }
+
   /** Deleting the auth user cascades through every table (see the migration). */
   async deleteUser(userId: string) {
     const { error } = await this.db.rpc("forget_me", { target: userId });

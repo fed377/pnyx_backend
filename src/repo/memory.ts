@@ -28,6 +28,7 @@ export class MemoryRepository implements Repository {
   private follows = new Set<string>(); // `${follower}:${followee}`
   private blocks = new Set<string>(); // `${blocker}:${blocked}`
   private contentReports: { reporterId: string; contentId: string; reason: string }[] = [];
+  readonly waitlist = new Map<string, { source: string | null; createdAt: string }>();
   private strikes = new Map<string, number>();
   private comments = new Map<string, CommentRow>();
   private commentVotes = new Map<string, 1 | -1>(); // `${commentId}:${userId}`
@@ -266,6 +267,12 @@ export class MemoryRepository implements Repository {
 
   async insertContentReport(input: { reporterId: string; contentId: string; reason: string }) {
     this.contentReports.push(input);
+  }
+
+  async addToWaitlist(email: string, source: string | null) {
+    if (this.waitlist.has(email)) return { added: false };
+    this.waitlist.set(email, { source, createdAt: new Date().toISOString() });
+    return { added: true };
   }
 
   async deleteUser(userId: string) {

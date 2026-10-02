@@ -67,6 +67,15 @@ const newComment = z.object({ body: z.string().min(1).max(500) });
 const contentReport = z.object({ reason: z.string().min(1).max(300) });
 const commentVote = z.object({ power: z.union([z.literal(1), z.literal(-1)]) });
 
+const waitlistSignup = z.object({
+  email: z.string().trim().max(254).pipe(z.email()),
+  source: z.string().max(40).optional(),
+});
+
+/** Public and unauthenticated, so far tighter than the global default — a
+ * real person signs up once, not 300 times a minute. */
+const WAITLIST_GUARD = { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } };
+
 const newHotTake = z.object({ category: gridId, body: z.string().min(1).max(220) });
 
 const newMessage = z
@@ -84,6 +93,16 @@ export function registerRoutes(app: FastifyInstance, service: PnyxService) {
 
   registerAuthRoutes(app);
   registerLegalRoutes(app);
+
+  /* ── Waitlist ─────────────────────────────────────────────────────────── */
+
+  /** The pnyx-waitlist site's signup form. Same response whether the email
+   * is new or already listed, so it can't be used to probe who signed up. */
+  app.post("/waitlist", WAITLIST_GUARD, async (req) => {
+    const { email, source } = waitlistSignup.parse(req.body);
+    await service.joinWaitlist(email, source);
+    return { ok: true };
+  });
 
   /* ── Me ───────────────────────────────────────────────────────────────── */
 

@@ -440,6 +440,14 @@ export class PnyxService {
     await this.repo.insertContentReport({ reporterId, contentId, reason });
   }
 
+  /* ── Waitlist ───────────────────────────────────────────────────────────── */
+
+  /** Pre-launch signup from the pnyx-waitlist site. Idempotent — and the
+   * caller never learns whether the address was already listed. */
+  async joinWaitlist(email: string, source?: string) {
+    await this.repo.addToWaitlist(email.trim().toLowerCase(), source ?? null);
+  }
+
   /* ── Feeds ──────────────────────────────────────────────────────────────── */
 
   /** Spec §6.2: reels only, ranked by the recommender. */

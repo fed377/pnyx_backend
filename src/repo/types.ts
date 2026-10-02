@@ -73,6 +73,11 @@ export interface Repository {
    * against the store, same as moderation strikes were before this. */
   insertContentReport(input: { reporterId: string; contentId: string; reason: string }): Promise<void>;
 
+  /* waitlist */
+  /** Idempotent: an email already on the list is left untouched. `email` must
+   * already be normalized (trimmed, lowercased). */
+  addToWaitlist(email: string, source: string | null): Promise<{ added: boolean }>;
+
   /* comments */
   listComments(contentId: string, viewerId: string): Promise<CommentRow[]>;
   getComment(id: string): Promise<{ id: string; contentId: string; authorId: string } | null>;

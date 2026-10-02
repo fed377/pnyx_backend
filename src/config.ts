@@ -17,9 +17,9 @@ export const config = {
   /**
    * Browser origins allowed to call this API cross-origin (comma-separated).
    * The native app's own requests aren't subject to CORS at all — this only
-   * matters if a browser-based client ever exists. Empty means none: no
-   * known web client exists yet, so the safe default is to deny rather than
-   * reflect every origin.
+   * matters for browser clients — today, the pnyx-waitlist site's signup
+   * form. Empty means none: the safe default is to deny rather than reflect
+   * every origin.
    */
   allowedOrigins: (process.env.ALLOWED_ORIGINS ?? "")
     .split(",")

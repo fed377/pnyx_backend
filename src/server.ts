@@ -77,9 +77,9 @@ async function main() {
 
   const app = buildServer(repo, media, scorer, new ExpoPushSender());
   // The native app's own requests aren't subject to CORS at all — this only
-  // gates a hypothetical browser-based client. No such client exists yet, so
-  // an empty ALLOWED_ORIGINS means `origin: false` (deny all cross-origin
-  // browser access) rather than reflecting every origin.
+  // gates browser clients (the pnyx-waitlist site's POST /waitlist). An empty
+  // ALLOWED_ORIGINS means `origin: false` (deny all cross-origin browser
+  // access) rather than reflecting every origin.
   await app.register(cors, { origin: config.allowedOrigins.length ? config.allowedOrigins : false });
 
   await app.listen({ port: config.port, host: config.host });
