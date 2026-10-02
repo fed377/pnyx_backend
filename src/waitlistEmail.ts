@@ -14,14 +14,12 @@ export function waitlistConfirmation(to: string): EmailMessage {
     "",
     "You're on the list.",
     "",
-    `PNYX opens on ${LAUNCH_DAY}. We'll send you one more email that day, with the download link. Nothing in between.`,
+    `PNYX comes out on ${LAUNCH_DAY}. We'll send you one more email that day with the download link.`,
     "",
-    "There's no quiz to prepare for. Your type comes from what you react to.",
+    "In the app you watch short videos and photos and like or dislike them. From what you react to, it works out your personality and shows you who thinks like you.",
     "",
-    "Everyone should know what everyone really thinks.",
-    "",
-    "—",
-    "You're getting this because this address was added to the PNYX waitlist. If that wasn't you, ignore this email and you won't hear from us again.",
+    "--",
+    "You got this email because this address was added to the PNYX waitlist. If that wasn't you, you can ignore it and we won't email you again.",
   ].join("\n");
 
   const html = `<!doctype html>
@@ -33,7 +31,7 @@ export function waitlistConfirmation(to: string): EmailMessage {
 <title>You're on the PNYX waitlist</title>
 </head>
 <body style="margin:0;padding:0;background:#f2f0ec;">
-<div style="display:none;max-height:0;overflow:hidden;">PNYX opens on ${LAUNCH_DAY}. We'll email you once, that day.</div>
+<div style="display:none;max-height:0;overflow:hidden;">PNYX comes out on ${LAUNCH_DAY}. We'll email you when it does.</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f2f0ec;">
   <tr>
     <td align="center" style="padding:40px 16px;">
@@ -44,13 +42,12 @@ export function waitlistConfirmation(to: string): EmailMessage {
         <tr>
           <td style="background:#faf9f6;border:1px solid #dcd9d2;border-radius:16px;padding:32px 28px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#161513;">
             <h1 style="margin:0 0 16px;font-size:28px;line-height:1.1;font-weight:600;letter-spacing:-0.5px;color:#161513;">You're on the list.</h1>
-            <p style="margin:0 0 16px;font-size:16px;line-height:1.55;color:#4b4945;">PNYX opens on <strong style="color:#161513;">${LAUNCH_DAY}</strong>. We'll send you one more email that day, with the download link. Nothing in between.</p>
-            <p style="margin:0 0 24px;font-size:16px;line-height:1.55;color:#4b4945;">There's no quiz to prepare for. Your type comes from what you react to.</p>
-            <p style="margin:0;padding-top:20px;border-top:1px solid #e8e5df;font-size:14px;line-height:1.5;color:#67645e;">Everyone should know what everyone really thinks.</p>
+            <p style="margin:0 0 16px;font-size:16px;line-height:1.55;color:#4b4945;">PNYX comes out on <strong style="color:#161513;">${LAUNCH_DAY}</strong>. We'll send you one more email that day with the download link.</p>
+            <p style="margin:0;font-size:16px;line-height:1.55;color:#4b4945;">In the app you watch short videos and photos and like or dislike them. From what you react to, it works out your personality and shows you who thinks like you.</p>
           </td>
         </tr>
         <tr>
-          <td style="padding:20px 4px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:1.5;color:#67645e;">You're getting this because this address was added to the PNYX waitlist. If that wasn't you, ignore this email and you won't hear from us again.</td>
+          <td style="padding:20px 4px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:1.5;color:#67645e;">You got this email because this address was added to the PNYX waitlist. If that wasn't you, you can ignore it and we won't email you again.</td>
         </tr>
       </table>
     </td>
