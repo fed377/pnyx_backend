@@ -3,6 +3,7 @@ import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import Fastify from "fastify";
 import { assertConfig, config } from "./config";
+import { NullEmailSender, ResendEmailSender, type EmailSender } from "./email";
 import { NullMediaStore, SupabaseMediaStore, type MediaStore } from "./media";
 import { ExpoPushSender, NullPushSender, type PushSender } from "./push";
 import { MemoryRepository } from "./repo/memory";
@@ -19,6 +20,7 @@ export function buildServer(
   media: MediaStore = new NullMediaStore(),
   scorer: ContentScorer = new DeterministicScorer(),
   pushSender: PushSender = new NullPushSender(),
+  emailSender: EmailSender = new NullEmailSender(),
 ) {
   const app = Fastify({
     // Quiet under vitest: request logging dominates the cost of an inject() call.
@@ -49,7 +51,7 @@ export function buildServer(
   // routes would exist before rate-limit's hook did and never see it at all.
   app.register(rateLimit, { max: 300, timeWindow: "1 minute" });
   app.register(async (instance) => {
-    const service = new PnyxService(repo, scorer, media, pushSender);
+    const service = new PnyxService(repo, scorer, media, pushSender, emailSender);
     registerRoutes(instance, service);
   });
   return app;
@@ -75,7 +77,12 @@ async function main() {
     ? new GeminiScorer({ apiKey: config.geminiApiKey, model: config.scorerModel })
     : new DeterministicScorer();
 
-  const app = buildServer(repo, media, scorer, new ExpoPushSender());
+  // Without a key, waitlist signups are still stored — just not confirmed by email.
+  const emailSender: EmailSender = config.resendApiKey
+    ? new ResendEmailSender(config.resendApiKey, config.emailFrom)
+    : new NullEmailSender();
+
+  const app = buildServer(repo, media, scorer, new ExpoPushSender(), emailSender);
   // The native app's own requests aren't subject to CORS at all — this only
   // gates browser clients (the pnyx-waitlist site's POST /waitlist). An empty
   // ALLOWED_ORIGINS means `origin: false` (deny all cross-origin browser
@@ -86,6 +93,9 @@ async function main() {
   app.log.info({ store: config.store, devAuth: config.devAuth, scorer: scorer.name }, "PNYX API ready");
   if (config.store === "memory") {
     app.log.warn("running on the in-memory store — nothing is persisted");
+  }
+  if (emailSender instanceof NullEmailSender) {
+    app.log.warn("RESEND_API_KEY is not set — waitlist signups get no confirmation email");
   }
   if (scorer.name === "deterministic-stub") {
     app.log.warn("GEMINI_API_KEY is not set — posts are scored with the deterministic stub, not AI");

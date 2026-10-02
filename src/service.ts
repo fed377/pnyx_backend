@@ -11,11 +11,13 @@ import { affinity, rankReels } from "./core/feed";
 import { GRID_IDS, nearestPoint, orientationOf } from "./core/grids";
 import type { GridId, Positions, Vote, VotePower } from "./core/types";
 import { ageOn, ApiError, bucketOf, MIN_AGE } from "./domain";
+import { NullEmailSender, type EmailSender } from "./email";
 import type { ContentRow, ProfileRow } from "./domain";
 import { mimeKind, pathBelongsTo, type MediaStore } from "./media";
 import { NullPushSender, type PushSender } from "./push";
 import type { Repository } from "./repo/types";
 import type { ContentScorer, ScorableContent } from "./scoring/scorer";
+import { waitlistConfirmation } from "./waitlistEmail";
 
 /** Spec §6.5: privacy tier can change at most once per this period. */
 const TIER_CHANGE_COOLDOWN_MS = 30 * 24 * 60 * 60 * 1000;
@@ -66,6 +68,7 @@ export class PnyxService {
     private readonly scorer: ContentScorer,
     private readonly media: MediaStore,
     private readonly pushSender: PushSender = new NullPushSender(),
+    private readonly emailSender: EmailSender = new NullEmailSender(),
   ) {}
 
   /* ── Positions ──────────────────────────────────────────────────────────── */
@@ -443,9 +446,19 @@ export class PnyxService {
   /* ── Waitlist ───────────────────────────────────────────────────────────── */
 
   /** Pre-launch signup from the pnyx-waitlist site. Idempotent — and the
-   * caller never learns whether the address was already listed. */
+   * caller never learns whether the address was already listed.
+   *
+   * The confirmation email goes out only on the first signup (so re-submitting
+   * can't be used to spam an address), and isn't awaited: the response
+   * shouldn't wait on Resend, and a failed send mustn't fail the signup. */
   async joinWaitlist(email: string, source?: string) {
-    await this.repo.addToWaitlist(email.trim().toLowerCase(), source ?? null);
+    const normalized = email.trim().toLowerCase();
+    const { added } = await this.repo.addToWaitlist(normalized, source ?? null);
+    if (added) {
+      this.emailSender.send(waitlistConfirmation(normalized)).catch((err: unknown) => {
+        console.error(`waitlist confirmation to ${normalized} failed:`, err instanceof Error ? err.message : err);
+      });
+    }
   }
 
   /* ── Feeds ──────────────────────────────────────────────────────────────── */

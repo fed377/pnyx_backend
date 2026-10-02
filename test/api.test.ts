@@ -3,6 +3,7 @@ import { DECAY_FLOOR, MAX_WINDOW, ORIGIN, UNLOCK_AT } from "../src/core/algorith
 import { GRID_IDS, nearestPoint } from "../src/core/grids";
 import type { Positions, VotePower } from "../src/core/types";
 import type { GridId } from "../src/core/types";
+import type { EmailMessage, EmailSender } from "../src/email";
 import type { MediaStore, UploadTicket } from "../src/media";
 import type { PushSender } from "../src/push";
 import { MemoryRepository } from "../src/repo/memory";
@@ -43,6 +44,16 @@ class FakePushSender implements PushSender {
   readonly sent: { tokens: string[]; title: string; body: string }[] = [];
   async send(tokens: string[], input: { title: string; body: string }) {
     this.sent.push({ tokens, title: input.title, body: input.body });
+  }
+}
+
+/** Records every send instead of calling Resend — or fails every one, to prove that's harmless. */
+class FakeEmailSender implements EmailSender {
+  readonly sent: EmailMessage[] = [];
+  constructor(private readonly fail = false) {}
+  async send(message: EmailMessage) {
+    this.sent.push(message);
+    if (this.fail) throw new Error("resend is down");
   }
 }
 
@@ -1073,6 +1084,31 @@ describe("http layer", () => {
       expect(again.statusCode).toBe(first.statusCode);
       expect(again.json()).toEqual(first.json());
       expect(store.waitlist.size).toBe(1);
+    });
+
+    it("emails a confirmation on the first signup only", async () => {
+      const email = new FakeEmailSender();
+      const instance = buildServer(new MemoryRepository(), new FakeMediaStore(), undefined, undefined, email);
+      const send = (address: string) => instance.inject({ method: "POST", url: "/waitlist", payload: { email: address } });
+      await send("Someone@Example.com");
+      await send("someone@example.com");
+      expect(email.sent).toHaveLength(1);
+      expect(email.sent[0]).toMatchObject({ to: "someone@example.com", subject: "You're on the PNYX waitlist" });
+      expect(email.sent[0]!.html).toContain("2 November 2026");
+      expect(email.sent[0]!.text).toContain("2 November 2026");
+    });
+
+    it("still records the signup when the confirmation email fails", async () => {
+      const store = new MemoryRepository();
+      const email = new FakeEmailSender(true);
+      const res = await buildServer(store, new FakeMediaStore(), undefined, undefined, email).inject({
+        method: "POST",
+        url: "/waitlist",
+        payload: { email: "someone@example.com" },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(store.waitlist.size).toBe(1);
+      expect(email.sent).toHaveLength(1);
     });
 
     it("rejects something that isn't an email address", async () => {

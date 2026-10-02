@@ -32,6 +32,12 @@ export const config = {
   // pointing at 3.5) — confirmed from a live "internal error" on POST /content.
   scorerModel: process.env.SCORER_MODEL ?? "gemini-3.5-flash-lite",
 
+  /** Waitlist confirmation emails via Resend (src/email.ts). Optional: without
+   * a key, signups are stored but not confirmed. */
+  resendApiKey: process.env.RESEND_API_KEY ?? "",
+  /** Must be on a domain verified in Resend — see ResendEmailSender. */
+  emailFrom: process.env.EMAIL_FROM ?? "PNYX <onboarding@resend.dev>",
+
   /**
    * Accept `Authorization: Bearer dev:<userId>` instead of a real Supabase JWT.
    * Convenient locally, refused whenever STORE=supabase.
