@@ -112,7 +112,7 @@ export type HotTake = {
   /** Which grid this take is filed under — shown as its category chip. */
   category: GridId;
   /** Static reaction counts. Hot Takes are ephemeral and don't move your
-   * grids (spec), so these are display-only, not something you can cast. */
+   * grids, so these are display-only, not something you can cast. */
   up: number;
   down: number;
   comments: number;

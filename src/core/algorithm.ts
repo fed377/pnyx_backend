@@ -1,7 +1,7 @@
 import { GRID_IDS, GRIDS, nearestPoint } from "./grids";
 import type { GridId, Point, Positions, Scores, Vote, VotePower } from "./types";
 
-/* ── Constants (spec §4.2 / §4.3) ─────────────────────────────────────────── */
+/* ── Constants ────────────────────────────────────────────────────────────── */
 
 /** A full-strength vote moves the user 10% of the remaining distance. */
 export const STEP = 1 / 10;
@@ -10,7 +10,7 @@ export const DECAY_BASE = 0.99;
 export const DECAY_FLOOR = 0.0810585161622;
 /** 0.99^250 ≈ 0.0810585 — so the effective sample caps at ~250 votes. */
 export const MAX_WINDOW = 250;
-/** Type stays locked until this many reactions (spec §4.3). */
+/** Type stays locked until this many reactions. */
 export const UNLOCK_AT = 50;
 /** The first N reels are deliberately broad, to bootstrap a profile. */
 export const COLD_START = 50;
@@ -119,7 +119,7 @@ export function positionHistory(votes: Vote[], every = 5): Positions[] {
   return out;
 }
 
-/* ── Alignment (spec §4.4) ────────────────────────────────────────────────── */
+/* ── Alignment ────────────────────────────────────────────────────────────── */
 
 export function distance(a: Point, b: Point): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
@@ -127,11 +127,9 @@ export function distance(a: Point, b: Point): number {
 
 /**
  * Percentage closeness of two positions on one grid, normalized to the grid's
- * own max diagonal. Spec §4.4 also calls for normalizing "to each user's own
- * vote-count scale," but defines no formula for that anywhere — this is a
- * confirmed spec-wording gap (see MISSING_FEATURES.md P2.13), not a bug to fix
- * against this code. Product decision: leave as grid-diagonal normalization
- * until the spec supplies an actual formula.
+ * own max diagonal. Normalizing to each user's own vote-count scale has been
+ * considered, but there is no agreed formula for it — so this stays plain
+ * grid-diagonal normalization until there is one.
  */
 export function gridAlignment(a: Point, b: Point): number {
   return (1 - distance(a, b) / MAX_DIST) * 100;
@@ -153,8 +151,7 @@ export function totalAlignment(a: Positions, b: Positions): number {
 
 /**
  * How many leading letters of a grid's position names are needed before no two
- * collide — spec §6.4 flags a fixed two-letter prefix as an unresolved collision
- * risk (e.g. focus's "Burnt"/"Burgundy" both start "BU"), so this grows the
+ * collide — a fixed two-letter prefix is a real collision risk (e.g. focus's "Burnt"/"Burgundy" both start "BU"), so this grows the
  * prefix per grid until every name in it is distinguishable, instead of
  * guessing a width that happens to work for today's name list.
  */

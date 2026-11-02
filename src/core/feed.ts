@@ -60,7 +60,7 @@ export function opinionSplitMultiplier(t: OpinionTallies): number {
 }
 
 /**
- * Recommendation order (spec §4.3).
+ * Recommendation order.
  *
  * Cold start: the first 50 reactions get a deliberately broad spread rather than
  * a proximity ranking. After that, score favours content that is close to the

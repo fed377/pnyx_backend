@@ -233,7 +233,7 @@ function split(love: number, like: number, dislike: number, hate: number) {
   return { love, like, dislike, hate };
 }
 
-/** Reels — Feed only (spec §6.1: no reels on Home). */
+/** Reels — Feed only (no reels on Home). */
 export const REELS: Content[] = (
   [
   {
@@ -398,7 +398,7 @@ export const REELS: Content[] = (
   ] satisfies Omit<Content, "commentCount">[]
 ).map((c) => ({ ...c, commentCount: c.comments.length }));
 
-/** Home posts — image and text (spec §6.1). */
+/** Home posts — image and text. */
 export const POSTS: Content[] = (
   [
   {

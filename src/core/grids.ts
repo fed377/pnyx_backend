@@ -1,20 +1,20 @@
 import type { Grid, GridId, GridPoint, Point } from "./types";
 
 /**
- * The five grids (spec §3).
+ * The five grids.
  *
- * Axis orientation is derived from the quadrant labels in the spec tables rather
- * than the column order of the summary table, because the two disagree for
- * Mind (the summary lists Emotive↔Scientific first, but the table puts that on
+ * Axis orientation is derived from each grid's quadrant labels rather than the
+ * order its axes are usually listed in, because the two disagree for
+ * Mind (Emotive↔Scientific is usually listed first, but its quadrants put it on
  * the vertical axis). Every grid here follows one rule: the first-listed pole of
  * each axis sits at the negative end.
  *
- * Known spec inconsistency — CULTURE: two of the four quadrants label Broad/Niche
+ * Known inconsistency — CULTURE: two of the four quadrants label Broad/Niche
  * in a way that cannot coexist. (+x,+y) is "Classical+Niche" and (-x,+y) is
  * "Classical+Broad", which puts Niche at +x; but (+x,-y) is "Contemporary+Broad"
  * and (-x,-y) is "Contemporary+Niche", which puts Broad at +x. We keep Niche at
- * +x — it matches the classical half of the table and the axis rule every other
- * grid follows. Coordinates, names and hex values are exactly as specified.
+ * +x — it matches the classical half of the quadrants and the axis rule every other
+ * grid follows. Coordinates, names and hex values are unchanged.
  */
 
 export const GRID_IDS: GridId[] = ["values", "mind", "soul", "culture", "focus"];
@@ -141,7 +141,7 @@ const focus: Grid = {
 export const GRIDS: Record<GridId, Grid> = { values, mind, soul, culture, focus };
 export const GRID_LIST: Grid[] = [values, mind, soul, culture, focus];
 
-/** Nearest of the 13 named reference points — display only (spec §3.2 note). */
+/** Nearest of the 13 named reference points — display only. */
 export function nearestPoint(gridId: GridId, p: Point): GridPoint {
   const pts = GRIDS[gridId].points;
   let best = pts[0];
