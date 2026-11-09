@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { ORIGIN } from "../core/algorithm";
 import { ALL_CONTENT, ME_DEFAULTS, ME_ID, PEOPLE } from "../core/data";
+import { GRID_IDS } from "../core/grids";
 import type { GridId, Positions } from "../core/types";
 import type {
   CommentRow,
@@ -13,7 +14,7 @@ import type {
   ProfileRow,
   VoteRow,
 } from "../domain";
-import type { ContentFilter, NewContent, Repository } from "./types";
+import type { ContentFilter, NewContent, ReelCandidate, ReelCandidateQuery, ReelView, Repository } from "./types";
 
 /**
  * Runs the whole API with no database, seeded from the sample people and posts
@@ -25,6 +26,8 @@ export class MemoryRepository implements Repository {
   private positions = new Map<string, PositionsRow>();
   private content = new Map<string, ContentRow>();
   private votes = new Map<string, VoteRow>(); // `${userId}:${contentId}`
+  private reelViews = new Set<string>(); // `${userId}:${contentId}`
+  private reelStats = new Map<string, { views: number; completionSum: number }>();
   private follows = new Set<string>(); // `${follower}:${followee}`
   private blocks = new Set<string>(); // `${blocker}:${blocked}`
   private contentReports: { reporterId: string; contentId: string; reason: string }[] = [];
@@ -121,6 +124,34 @@ export class MemoryRepository implements Repository {
     return [...this.profiles.values()].filter((p) => p.id !== exceptId);
   }
 
+  async getProfiles(ids: string[]) {
+    return ids.flatMap((id) => this.profiles.get(id) ?? []);
+  }
+
+  async recentProfiles(exceptId: string, limit: number) {
+    return [...this.profiles.values()].filter((p) => p.id !== exceptId).slice(0, limit);
+  }
+
+  async searchProfiles(term: string, exceptId: string, limit: number) {
+    const q = term.toLowerCase();
+    return [...this.profiles.values()]
+      .filter((p) => p.id !== exceptId && (p.name.toLowerCase().includes(q) || p.handle.toLowerCase().includes(q)))
+      .slice(0, limit);
+  }
+
+  async nearestPeople(viewerId: string, position: number[], hidden: string[], limit: number) {
+    const rows = await Promise.all(
+      [...this.profiles.keys()]
+        .filter((id) => id !== viewerId && !hidden.includes(id))
+        .map(async (id) => {
+          const p = (await this.getPositions(id)).positions;
+          const v = GRID_IDS.flatMap((g) => [p[g].x, p[g].y]);
+          return { id, dist: v.reduce((sum, x, i) => sum + (x - position[i]) ** 2, 0) };
+        }),
+    );
+    return rows.sort((a, b) => a.dist - b.dist).slice(0, limit).map((r) => r.id);
+  }
+
   async updateProfile(id: string, patch: Partial<ProfileRow>) {
     const current = this.profiles.get(id);
     if (!current) throw new Error(`no such profile: ${id}`);
@@ -165,9 +196,61 @@ export class MemoryRepository implements Repository {
     if (filter.type) rows = rows.filter((r) => r.type === filter.type);
     if (filter.types) rows = rows.filter((r) => filter.types!.includes(r.type));
     if (filter.authorId) rows = rows.filter((r) => r.authorId === filter.authorId);
+    if (filter.authorIds) rows = rows.filter((r) => filter.authorIds!.includes(r.authorId));
     if (filter.moderationStatus) rows = rows.filter((r) => r.moderationStatus === filter.moderationStatus);
     rows.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     return filter.limit ? rows.slice(0, filter.limit) : rows;
+  }
+
+  async listContentByIds(ids: string[]) {
+    return ids.flatMap((id) => this.content.get(id) ?? []);
+  }
+
+  private toCandidate(c: ContentRow): ReelCandidate {
+    const seen = this.reelStats.get(c.id);
+    return {
+      id: c.id,
+      authorId: c.authorId,
+      scores: c.scores,
+      tallies: c.tallies,
+      views: seen?.views ?? 0,
+      completionSum: seen?.completionSum ?? 0,
+      createdAt: c.createdAt,
+    };
+  }
+
+  async reelCandidates(q: ReelCandidateQuery) {
+    return [...this.content.values()]
+      .filter(
+        (c) =>
+          c.type === "video" &&
+          c.moderationStatus === "approved" &&
+          !q.excluded.includes(c.id) &&
+          !q.hidden.includes(c.authorId) &&
+          !this.votes.has(`${q.viewerId}:${c.id}`) &&
+          (q.ignoreViews || !this.reelViews.has(`${q.viewerId}:${c.id}`)),
+      )
+      .map((c) => this.toCandidate(c));
+  }
+
+  async reelCandidatesById(ids: string[]) {
+    return ids.flatMap((id) => {
+      const c = this.content.get(id);
+      return c && c.type === "video" && c.moderationStatus === "approved" ? [this.toCandidate(c)] : [];
+    });
+  }
+
+  async recordReelViews(viewerId: string, views: ReelView[]) {
+    for (const v of views) {
+      const c = this.content.get(v.contentId);
+      if (!c) continue;
+      const key = `${viewerId}:${v.contentId}`;
+      const first = !this.reelViews.has(key);
+      this.reelViews.add(key);
+      if (!first || v.completion === null || c.authorId === viewerId) continue;
+      const stats = this.reelStats.get(c.id) ?? { views: 0, completionSum: 0 };
+      this.reelStats.set(c.id, { views: stats.views + 1, completionSum: stats.completionSum + v.completion });
+    }
   }
 
   async insertContent(row: NewContent) {
@@ -378,6 +461,22 @@ export class MemoryRepository implements Repository {
   async setAlignmentCache(userA: string, userB: string, _perGrid: Record<GridId, number>, totalPct: number) {
     const [a, b] = userA < userB ? [userA, userB] : [userB, userA];
     this.alignmentCache.set(`${a}:${b}`, totalPct);
+  }
+
+  async getAlignmentCaches(userId: string, others: string[]) {
+    const out: Record<string, number> = {};
+    for (const other of others) {
+      const total = await this.getAlignmentCache(userId, other);
+      if (total !== null) out[other] = total;
+    }
+    return out;
+  }
+
+  async setAlignmentCaches(
+    userId: string,
+    rows: { otherId: string; perGrid: Record<GridId, number>; totalPct: number }[],
+  ) {
+    for (const r of rows) await this.setAlignmentCache(userId, r.otherId, r.perGrid, r.totalPct);
   }
 
   async listConversations(userId: string) {

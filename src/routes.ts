@@ -11,6 +11,18 @@ import type { PnyxService } from "./service";
 const votePower = z.union([z.literal(2), z.literal(1), z.literal(-1), z.literal(-2)]);
 const gridId = z.enum(["values", "mind", "soul", "culture", "focus"]);
 
+const reelViewsBody = z.object({
+  items: z
+    .array(
+      z.object({
+        contentId: z.string().min(1),
+        watchMs: z.number().min(0),
+        completion: z.number().min(0).max(1).nullable(),
+      }),
+    )
+    .max(50),
+});
+
 const castVoteBody = z.object({
   contentId: z.string().min(1),
   power: votePower,
@@ -153,8 +165,21 @@ export function registerRoutes(app: FastifyInstance, service: PnyxService) {
 
   app.get("/feed/reels", async (req) => {
     const userId = await requireUser(req);
-    const { limit } = z.object({ limit: z.coerce.number().min(1).max(100).default(30) }).parse(req.query);
-    return { items: await service.reels(userId, limit) };
+    const { limit, exclude } = z
+      .object({
+        limit: z.coerce.number().min(1).max(100).default(30),
+        // Comma-separated ids the client already has loaded.
+        exclude: z.string().max(4000).optional(),
+      })
+      .parse(req.query);
+    return { items: await service.reels(userId, limit, exclude ? exclude.split(",").slice(0, 100) : []) };
+  });
+
+  app.post("/feed/views", async (req, reply) => {
+    const userId = await requireUser(req);
+    const { items } = reelViewsBody.parse(req.body);
+    await service.recordReelViews(userId, items);
+    return reply.code(204).send();
   });
 
   app.get("/home", async (req) => {

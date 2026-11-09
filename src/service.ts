@@ -15,7 +15,7 @@ import { NullEmailSender, type EmailSender } from "./email";
 import type { ContentRow, ProfileRow } from "./domain";
 import { mimeKind, pathBelongsTo, type MediaStore } from "./media";
 import { NullPushSender, type PushSender } from "./push";
-import type { Repository } from "./repo/types";
+import type { ReelView, Repository } from "./repo/types";
 import type { ContentScorer, ScorableContent } from "./scoring/scorer";
 import { waitlistConfirmation } from "./waitlistEmail";
 
@@ -62,6 +62,29 @@ const ALIGNMENT_NOTIFY_THRESHOLD = 70;
 
 const voteVerb = (power: VotePower) => (power === 2 ? "loved" : power === 1 ? "liked" : power === -1 ? "disliked" : "hated");
 
+export type ServiceOptions = {
+  /** Answer a vote before its follow-up work finishes, and batch vote
+   * notifications. Off by default so tests can assert on the results directly. */
+  deferWork?: boolean;
+  voteNotifyWindowMs?: number;
+};
+
+const VOTE_NOTIFY_WINDOW_MS = 60_000;
+
+/** How many reels each source offers the ranker. */
+const REEL_NEAR = 300;
+const REEL_RECENT = 100;
+const REEL_EXPLORE = 100;
+
+/** Share of a page that can revisit reels already voted on. */
+const VOTED_REEL_SHARE = 1 / 15;
+
+/** Enough nearby people that the exact alignment ranking has room to reorder them. */
+const MIN_PEOPLE_CANDIDATES = 200;
+const MAX_FOLLOWS_FOR_HOME = 500;
+
+const toVector = (p: Positions) => GRID_IDS.flatMap((g) => [p[g].x, p[g].y]);
+
 export class PnyxService {
   constructor(
     private readonly repo: Repository,
@@ -69,7 +92,49 @@ export class PnyxService {
     private readonly media: MediaStore,
     private readonly pushSender: PushSender = new NullPushSender(),
     private readonly emailSender: EmailSender = new NullEmailSender(),
+    private readonly options: ServiceOptions = {},
   ) {}
+
+  /** Author + post → the votes waiting to go out as one notification. */
+  private readonly pendingVoteNotes = new Map<string, { actorId: string; power: VotePower; voters: Set<string> }>();
+
+  /** Work a request shouldn't wait for. Failures are logged, never surfaced. */
+  private async background(task: () => Promise<unknown>) {
+    const run = task().catch((err: unknown) => {
+      console.error("background task failed:", err instanceof Error ? err.message : err);
+    });
+    if (!this.options.deferWork) await run;
+  }
+
+  /** Votes on one post within the window become a single notification and push. */
+  private async queueVoteNotification(authorId: string, actorId: string, contentId: string, power: VotePower) {
+    if (authorId === actorId) return;
+    if (!this.options.deferWork) {
+      await this.notify(authorId, { actorId, kind: "vote", body: `${voteVerb(power)} your take.`, contentId });
+      return;
+    }
+    const key = `${authorId}:${contentId}`;
+    const pending = this.pendingVoteNotes.get(key);
+    if (pending) {
+      pending.actorId = actorId;
+      pending.power = power;
+      pending.voters.add(actorId);
+      return;
+    }
+    this.pendingVoteNotes.set(key, { actorId, power, voters: new Set([actorId]) });
+    const timer = setTimeout(() => {
+      const note = this.pendingVoteNotes.get(key);
+      this.pendingVoteNotes.delete(key);
+      if (!note) return;
+      const others = note.voters.size - 1;
+      const body =
+        others === 0
+          ? `${voteVerb(note.power)} your take.`
+          : `and ${others} ${others === 1 ? "other" : "others"} reacted to your take.`;
+      void this.background(() => this.notify(authorId, { actorId: note.actorId, kind: "vote", body, contentId }));
+    }, this.options.voteNotifyWindowMs ?? VOTE_NOTIFY_WINDOW_MS);
+    timer.unref?.();
+  }
 
   /* ── Positions ──────────────────────────────────────────────────────────── */
 
@@ -124,13 +189,13 @@ export class PnyxService {
     ]);
     const unlocked = voteCount >= UNLOCK_AT;
 
-    // Awaited so the caller can rely on it having happened (and tests can
-    // assert on it deterministically), but caught so a notification problem
-    // never turns into a failed vote.
-    await Promise.all([
-      this.notify(content.authorId, { actorId: userId, kind: "vote", body: `${voteVerb(power)} your take.`, contentId }).catch(() => {}),
-      this.checkAlignmentCrossings(userId, positions).catch(() => {}),
-    ]);
+    // Nothing here changes the vote's result, so it doesn't hold up the response.
+    await this.background(() =>
+      Promise.all([
+        this.queueVoteNotification(content.authorId, userId, contentId, power).catch(() => {}),
+        this.checkAlignmentCrossings(userId, positions).catch(() => {}),
+      ]),
+    );
 
     return {
       positions,
@@ -201,19 +266,27 @@ export class PnyxService {
     if (neighbors.length === 0) return;
 
     const rows = await this.repo.listPositions(neighbors);
-    for (const row of rows) {
-      const total = totalAlignment(positions, row.positions);
-      const perGrid = perGridAlignment(positions, row.positions);
-      const previous = await this.repo.getAlignmentCache(userId, row.userId);
-      await this.repo.setAlignmentCache(userId, row.userId, perGrid, total);
+    const scored = rows.map((row) => ({
+      otherId: row.userId,
+      perGrid: perGridAlignment(positions, row.positions),
+      totalPct: totalAlignment(positions, row.positions),
+    }));
+    const previous = await this.repo.getAlignmentCaches(
+      userId,
+      scored.map((r) => r.otherId),
+    );
+    await this.repo.setAlignmentCaches(userId, scored);
 
-      const justCrossed = (previous === null || previous < ALIGNMENT_NOTIFY_THRESHOLD) && total >= ALIGNMENT_NOTIFY_THRESHOLD;
+    for (const { otherId, totalPct } of scored) {
+      const before = previous[otherId];
+      const justCrossed =
+        (before === undefined || before < ALIGNMENT_NOTIFY_THRESHOLD) && totalPct >= ALIGNMENT_NOTIFY_THRESHOLD;
       if (!justCrossed) continue;
-      const pct = Math.round(total);
+      const pct = Math.round(totalPct);
       const body = `are now ${pct}% aligned.`;
       await Promise.all([
-        this.notify(userId, { actorId: row.userId, kind: "alignment", body, pct }),
-        this.notify(row.userId, { actorId: userId, kind: "alignment", body, pct }),
+        this.notify(userId, { actorId: otherId, kind: "alignment", body, pct }),
+        this.notify(otherId, { actorId: userId, kind: "alignment", body, pct }),
       ]);
     }
   }
@@ -307,27 +380,25 @@ export class PnyxService {
 
   /**
    * Spec §6.3: the ten most-aligned people in the world, more behind premium.
-   * Linear over the user base — fine for a bounded pilot, needs a spatial index
-   * or precomputed cache before it is asked of a real population.
+   * The database narrows it to nearby people first; exact alignment only runs
+   * on those.
    *
-   * `query` (People's search box) filters by name/handle over that same full
-   * user base first, *then* ranks and caps to `limit` — without it, search
+   * `query` (People's search box) filters by name/handle over the full user
+   * base first, *then* ranks and caps to `limit` — without it, search
    * could only ever find someone already inside the top-`limit` alignment
    * window it was scoped to.
    */
   async mostAligned(userId: string, limit: number, query?: string) {
-    const [viewer, others, following, followers, hidden] = await Promise.all([
+    const [viewer, following, followers, hidden] = await Promise.all([
       this.repo.getPositions(userId),
-      this.repo.listProfiles(userId),
       this.repo.listFollowing(userId),
       this.repo.listFollowers(userId),
       this.blockedEitherWay(userId),
     ]);
-    const q = query?.trim().toLowerCase();
-    const visible = others.filter((p) => !hidden.has(p.id));
-    const candidates = q
-      ? visible.filter((p) => p.name.toLowerCase().includes(q) || p.handle.toLowerCase().includes(q))
-      : visible;
+    const q = query?.trim();
+    const candidates = (q ? await this.peopleMatching(q, userId) : await this.peopleNear(userId, viewer.positions, following, hidden, limit)).filter(
+      (p) => !hidden.has(p.id),
+    );
     const positions = await this.repo.listPositions(candidates.map((p) => p.id));
     const byId = new Map(positions.map((p) => [p.userId, p]));
     const iFollow = new Set(following);
@@ -351,6 +422,28 @@ export class PnyxService {
       })
       .sort((a, b) => b.total - a.total)
       .slice(0, limit);
+  }
+
+  private peopleMatching(term: string, userId: string) {
+    return this.repo.searchProfiles(term, userId, MIN_PEOPLE_CANDIDATES);
+  }
+
+  /** Nearby people plus everyone you follow; newest accounts top it up, since
+   * people who haven't voted yet have no position to be near. */
+  private async peopleNear(
+    userId: string,
+    positions: Positions,
+    following: string[],
+    hidden: Set<string>,
+    limit: number,
+  ) {
+    const count = Math.max(limit * 4, MIN_PEOPLE_CANDIDATES);
+    const near = await this.repo.nearestPeople(userId, toVector(positions), [...hidden], count);
+    const profiles = await this.repo.getProfiles([...new Set([...near, ...following])]);
+    if (profiles.length >= limit) return profiles;
+    const known = new Set(profiles.map((p) => p.id));
+    const recent = await this.repo.recentProfiles(userId, limit * 2);
+    return [...profiles, ...recent.filter((p) => !known.has(p.id))];
   }
 
   async updateProfile(userId: string, patch: Partial<ProfileRow>): Promise<PublicProfile> {
@@ -463,35 +556,79 @@ export class PnyxService {
 
   /* ── Feeds ──────────────────────────────────────────────────────────────── */
 
-  /** Spec §6.2: reels only, ranked by the recommender. */
-  async reels(userId: string, limit = 30) {
-    const [{ positions, voteCount }, rows, hidden] = await Promise.all([
+  /**
+   * Spec §6.2: reels only, ranked by the recommender. `excluded` is what the
+   * client already has loaded, which is how the next page differs from this one.
+   */
+  async reels(userId: string, limit = 30, excluded: string[] = []) {
+    const [{ positions, voteCount }, hiddenSet, votes] = await Promise.all([
       this.repo.getPositions(userId).then((r) => ({ positions: r.positions, voteCount: r.voteCount })),
-      this.repo.listContent({ type: "video", moderationStatus: "approved" }),
       this.blockedEitherWay(userId),
+      this.myVotes(userId),
     ]);
+    const hidden = [...hiddenSet];
     // Your own reels are included — spec §5 forbids *voting* on them, not seeing
     // them, and Home already lists your own posts. The client disables the vote
-    // controls. Filter by `r.authorId !== userId` here if that changes.
-    const visible = rows.filter((r) => !hidden.has(r.authorId));
-    return rankReels(visible, positions, voteCount, (c) => c.tallies).slice(0, limit);
+    // controls.
+    const candidates = (ignoreViews: boolean) =>
+      this.repo.reelCandidates({
+        viewerId: userId,
+        position: toVector(positions),
+        excluded,
+        hidden,
+        near: REEL_NEAR,
+        recent: REEL_RECENT,
+        explore: REEL_EXPLORE,
+        ignoreViews,
+      });
+
+    const fresh = await candidates(false);
+    const freshIds = new Set(fresh.map((c) => c.id));
+    // A small catalogue runs out of unwatched reels; repeats beat an empty feed.
+    const rewatches = fresh.length < limit ? (await candidates(true)).filter((c) => !freshIds.has(c.id)) : [];
+
+    const left = limit - fresh.length - rewatches.length;
+    const skip = new Set(excluded);
+    const votedIds = votes
+      .map((v) => v.contentId)
+      .filter((id) => !skip.has(id))
+      .sort(() => Math.random() - 0.5)
+      .slice(0, Math.max(Math.ceil(limit * VOTED_REEL_SHARE), left));
+    const revisits = (await this.repo.reelCandidatesById(votedIds)).filter((c) => !hiddenSet.has(c.authorId));
+
+    const ranked = rankReels([...fresh, ...rewatches, ...revisits], positions, voteCount, (c) => c.tallies, {
+      voted: new Set([...rewatches, ...revisits].map((c) => c.id)),
+      random: Math.random,
+      signals: (c) => ({
+        authorId: c.authorId,
+        createdAtMs: Date.parse(c.createdAt),
+        views: c.views,
+        completionSum: c.completionSum,
+      }),
+    }).slice(0, limit);
+
+    const rows = new Map((await this.repo.listContentByIds(ranked.map((c) => c.id))).map((r) => [r.id, r]));
+    return ranked.flatMap((c) => rows.get(c.id) ?? []);
+  }
+
+  /** Watch data from the app; used for "already seen" and for ranking by what people finish. */
+  async recordReelViews(userId: string, views: ReelView[]) {
+    await this.repo.recordReelViews(userId, views);
   }
 
   /** Spec §6.1: image and text posts, people you follow first. */
   async home(userId: string, limit = 40) {
-    const [rows, following, hidden] = await Promise.all([
-      this.repo.listContent({ types: ["image", "text"], moderationStatus: "approved" }),
-      this.repo.listFollowing(userId),
-      this.blockedEitherWay(userId),
+    const [following, hidden] = await Promise.all([this.repo.listFollowing(userId), this.blockedEitherWay(userId)]);
+    const base = { types: ["image", "text"] as ContentRow["type"][], moderationStatus: "approved" as const };
+    // Over-fetched by the number of hidden authors, who are filtered out after.
+    const fetch = limit + hidden.size;
+    const [followed, recent] = await Promise.all([
+      this.repo.listContent({ ...base, authorIds: [userId, ...following.slice(0, MAX_FOLLOWS_FOR_HOME)], limit: fetch }),
+      this.repo.listContent({ ...base, limit: fetch }),
     ]);
-    const follows = new Set(following);
-    return rows
+    const followedIds = new Set(followed.map((r) => r.id));
+    return [...followed, ...recent.filter((r) => !followedIds.has(r.id))]
       .filter((r) => !hidden.has(r.authorId))
-      .sort((a, b) => {
-        const rank = (r: ContentRow) => (r.authorId === userId || follows.has(r.authorId) ? 0 : 1);
-        const d = rank(a) - rank(b);
-        return d !== 0 ? d : b.createdAt.localeCompare(a.createdAt);
-      })
       .slice(0, limit);
   }
 

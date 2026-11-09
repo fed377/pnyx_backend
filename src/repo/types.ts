@@ -15,9 +15,36 @@ export type ContentFilter = {
   type?: ContentRow["type"];
   types?: ContentRow["type"][];
   authorId?: string;
+  authorIds?: string[];
   moderationStatus?: ContentRow["moderationStatus"];
   limit?: number;
 };
+
+/** Just what ranking needs, so a few hundred candidates stay a small payload. */
+export type ReelCandidate = {
+  id: string;
+  authorId: string;
+  scores: ContentRow["scores"];
+  tallies: ContentRow["tallies"];
+  views: number;
+  completionSum: number;
+  createdAt: string;
+};
+
+export type ReelCandidateQuery = {
+  viewerId: string;
+  /** x, y per grid, in GRID_IDS order. */
+  position: number[];
+  excluded: string[];
+  hidden: string[];
+  near: number;
+  recent: number;
+  explore: number;
+  /** Also allow reels the viewer has already watched. */
+  ignoreViews: boolean;
+};
+
+export type ReelView = { contentId: string; watchMs: number; completion: number | null };
 
 export type NewContent = Omit<ContentRow, "id" | "createdAt" | "tallies" | "commentCount">;
 
@@ -25,6 +52,12 @@ export interface Repository {
   /* profiles */
   getProfile(id: string): Promise<ProfileRow | null>;
   listProfiles(exceptId?: string): Promise<ProfileRow[]>;
+  getProfiles(ids: string[]): Promise<ProfileRow[]>;
+  recentProfiles(exceptId: string, limit: number): Promise<ProfileRow[]>;
+  /** Name or handle contains `term`. */
+  searchProfiles(term: string, exceptId: string, limit: number): Promise<ProfileRow[]>;
+  /** Closest people to `position`, nearest first. Only people who have voted have a position to compare. */
+  nearestPeople(viewerId: string, position: number[], hidden: string[], limit: number): Promise<string[]>;
   updateProfile(id: string, patch: Partial<ProfileRow>): Promise<ProfileRow>;
 
   /* positions — server-owned */
@@ -35,6 +68,11 @@ export interface Repository {
   /* content */
   getContent(id: string): Promise<ContentRow | null>;
   listContent(filter: ContentFilter): Promise<ContentRow[]>;
+  listContentByIds(ids: string[]): Promise<ContentRow[]>;
+  reelCandidates(query: ReelCandidateQuery): Promise<ReelCandidate[]>;
+  /** Approved reels only. */
+  reelCandidatesById(ids: string[]): Promise<ReelCandidate[]>;
+  recordReelViews(viewerId: string, views: ReelView[]): Promise<void>;
   insertContent(row: NewContent): Promise<ContentRow>;
   adjustTallies(contentId: string, delta: Partial<Record<"love" | "like" | "dislike" | "hate", number>>): Promise<void>;
   /** Moderation decision (spec §8). Nothing is votable until it is approved. */
@@ -101,6 +139,12 @@ export interface Repository {
     userB: string,
     perGrid: Record<GridId, number>,
     totalPct: number,
+  ): Promise<void>;
+  /** One user's cached alignment with each of `others`, keyed by the other's id. */
+  getAlignmentCaches(userId: string, others: string[]): Promise<Record<string, number>>;
+  setAlignmentCaches(
+    userId: string,
+    rows: { otherId: string; perGrid: Record<GridId, number>; totalPct: number }[],
   ): Promise<void>;
 
   /* messages (spec §6.7) */

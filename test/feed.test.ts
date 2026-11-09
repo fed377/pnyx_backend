@@ -80,3 +80,35 @@ describe("rankReels — opinion-split incentive", () => {
     expect(ranked[0].id).toBe("consensus-near");
   });
 });
+
+describe("rankReels — already-voted reels and variety", () => {
+  const positions = structuredClone(ORIGIN);
+  const reel = (id: string) => ({ id, scores: neutralScores(), tallies: tallies({}) });
+  const reels = Array.from({ length: 20 }, (_, i) => reel(`r${i}`));
+  const rank = (voted?: Set<string>, random?: () => number) =>
+    rankReels(reels, positions, 50, (c) => c.tallies, { voted, random }).map((c) => c.id);
+
+  it("puts unvoted reels first, with a voted one only every 15th slot", () => {
+    const voted = new Set(["r0", "r1", "r2"]);
+    const ids = rank(voted);
+    const slots = ids.flatMap((id, i) => (voted.has(id) ? [i] : []));
+    expect(slots).toEqual([14, 18, 19]);
+    expect([...ids].sort()).toEqual(reels.map((r) => r.id).sort());
+  });
+
+  it("still fills the feed when everything has been voted on", () => {
+    const ids = rank(new Set(reels.map((r) => r.id)));
+    expect(ids).toHaveLength(20);
+  });
+
+  it("is deterministic without a random source, and varies with one", () => {
+    expect(rank()).toEqual(rank());
+    const firsts = new Set(Array.from({ length: 30 }, () => rank(undefined, Math.random)[0]));
+    expect(firsts.size).toBeGreaterThan(1);
+  });
+
+  it("varies the first reel during cold start too", () => {
+    const first = () => rankReels(reels, positions, 0, (c) => c.tallies, { random: Math.random })[0].id;
+    expect(new Set(Array.from({ length: 30 }, first)).size).toBeGreaterThan(1);
+  });
+});

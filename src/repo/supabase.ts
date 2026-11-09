@@ -13,7 +13,7 @@ import type {
   Tallies,
   VoteRow,
 } from "../domain";
-import type { ContentFilter, NewContent, Repository } from "./types";
+import type { ContentFilter, NewContent, ReelCandidate, ReelCandidateQuery, ReelView, Repository } from "./types";
 
 type ProfileRecord = {
   id: string;
@@ -227,6 +227,45 @@ const toVote = (r: VoteRecord): VoteRow => ({
   createdAt: r.created_at,
 });
 
+/** Client-supplied ids reach uuid[] and ::uuid casts, where one bad value fails the whole query. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const onlyUuids = (ids: string[]) => ids.filter((id) => UUID.test(id));
+
+/** Keeps long `in (...)` lists inside URL limits. */
+function chunks<T>(items: T[], size = 200): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+const REEL_CANDIDATE_COLUMNS =
+  "id, author_id, scores, love_count, like_count, dislike_count, hate_count, view_count, completion_sum, created_at";
+
+type ReelCandidateRecord = {
+  id: string;
+  author_id: string;
+  scores: ReelCandidate["scores"];
+  love_count: number;
+  like_count: number;
+  dislike_count: number;
+  hate_count: number;
+  view_count: number;
+  completion_sum: number;
+  created_at: string;
+};
+
+function toReelCandidate(r: ReelCandidateRecord): ReelCandidate {
+  return {
+    id: r.id,
+    authorId: r.author_id,
+    scores: r.scores,
+    tallies: { love: r.love_count, like: r.like_count, dislike: r.dislike_count, hate: r.hate_count },
+    views: r.view_count,
+    completionSum: r.completion_sum,
+    createdAt: r.created_at,
+  };
+}
+
 function unwrap(res: { data: unknown; error: { message: string } | null }, what: string): unknown {
   if (res.error) throw new Error(`${what}: ${res.error.message}`);
   if (res.data === null || res.data === undefined) throw new Error(`${what}: no data returned`);
@@ -258,6 +297,49 @@ export class SupabaseRepository implements Repository {
     if (exceptId) q = q.neq("id", exceptId);
     const data = unwrap(await q, "listProfiles");
     return (data as ProfileRecord[]).map(toProfile);
+  }
+
+  async getProfiles(ids: string[]) {
+    const out: ProfileRow[] = [];
+    for (const part of chunks(ids)) {
+      const data = unwrap(await this.db.from("profiles").select("*").in("id", part), "getProfiles");
+      out.push(...(data as ProfileRecord[]).map(toProfile));
+    }
+    return out;
+  }
+
+  async recentProfiles(exceptId: string, limit: number) {
+    const data = unwrap(
+      await this.db
+        .from("profiles")
+        .select("*")
+        .neq("id", exceptId)
+        .order("created_at", { ascending: false })
+        .limit(limit),
+      "recentProfiles",
+    );
+    return (data as ProfileRecord[]).map(toProfile);
+  }
+
+  async searchProfiles(term: string, exceptId: string, limit: number) {
+    const data = unwrap(
+      await this.db.rpc("search_profiles", { term, except_id: exceptId, match_count: limit }),
+      "searchProfiles",
+    );
+    return (data as ProfileRecord[]).map(toProfile);
+  }
+
+  async nearestPeople(viewerId: string, position: number[], hidden: string[], limit: number) {
+    const data = unwrap(
+      await this.db.rpc("nearest_people", {
+        viewer: viewerId,
+        viewer_position: position,
+        hidden: onlyUuids(hidden),
+        match_count: limit,
+      }),
+      "nearestPeople",
+    );
+    return data as string[];
   }
 
   async updateProfile(id: string, patch: Partial<ProfileRow>) {
@@ -342,10 +424,59 @@ export class SupabaseRepository implements Repository {
     if (filter.type) q = q.eq("type", filter.type);
     if (filter.types) q = q.in("type", filter.types);
     if (filter.authorId) q = q.eq("author_id", filter.authorId);
+    if (filter.authorIds) q = q.in("author_id", filter.authorIds);
     if (filter.moderationStatus) q = q.eq("moderation_status", filter.moderationStatus);
     if (filter.limit) q = q.limit(filter.limit);
     const data = unwrap(await q, "listContent");
     return (data as ContentRecord[]).map(toContent);
+  }
+
+  async listContentByIds(ids: string[]) {
+    const out: ContentRow[] = [];
+    for (const part of chunks(onlyUuids(ids))) {
+      const data = unwrap(await this.db.from("content").select("*").in("id", part), "listContentByIds");
+      out.push(...(data as ContentRecord[]).map(toContent));
+    }
+    return out;
+  }
+
+  async reelCandidates(q: ReelCandidateQuery) {
+    const data = unwrap(
+      await this.db.rpc("reel_candidates", {
+        viewer: q.viewerId,
+        viewer_position: q.position,
+        excluded: onlyUuids(q.excluded),
+        hidden: onlyUuids(q.hidden),
+        near_count: q.near,
+        recent_count: q.recent,
+        explore_count: q.explore,
+        ignore_views: q.ignoreViews,
+      }),
+      "reelCandidates",
+    );
+    return (data as ReelCandidateRecord[]).map(toReelCandidate);
+  }
+
+  async reelCandidatesById(ids: string[]) {
+    const valid = onlyUuids(ids);
+    if (valid.length === 0) return [];
+    const data = unwrap(
+      await this.db
+        .from("content")
+        .select(REEL_CANDIDATE_COLUMNS)
+        .in("id", valid)
+        .eq("type", "video")
+        .eq("moderation_status", "approved"),
+      "reelCandidatesById",
+    );
+    return (data as unknown as ReelCandidateRecord[]).map(toReelCandidate);
+  }
+
+  async recordReelViews(viewerId: string, views: ReelView[]) {
+    const items = views.filter((v) => UUID.test(v.contentId));
+    if (items.length === 0) return;
+    const { error } = await this.db.rpc("record_reel_views", { viewer: viewerId, items });
+    if (error) throw new Error(`recordReelViews: ${error.message}`);
   }
 
   async insertContent(row: NewContent) {
@@ -678,6 +809,48 @@ export class SupabaseRepository implements Repository {
       { onConflict: "user_a,user_b" },
     );
     if (error) throw new Error(`setAlignmentCache: ${error.message}`);
+  }
+
+  async getAlignmentCaches(userId: string, others: string[]) {
+    const out: Record<string, number> = {};
+    // Pairs are stored with user_a < user_b, so `userId` can be on either side.
+    const higher = others.filter((o) => userId < o);
+    const lower = others.filter((o) => o < userId);
+    for (const part of chunks(higher)) {
+      const data = unwrap(
+        await this.db.from("alignments").select("user_b, total_pct").eq("user_a", userId).in("user_b", part),
+        "getAlignmentCaches",
+      ) as { user_b: string; total_pct: number }[];
+      for (const r of data) out[r.user_b] = r.total_pct;
+    }
+    for (const part of chunks(lower)) {
+      const data = unwrap(
+        await this.db.from("alignments").select("user_a, total_pct").eq("user_b", userId).in("user_a", part),
+        "getAlignmentCaches",
+      ) as { user_a: string; total_pct: number }[];
+      for (const r of data) out[r.user_a] = r.total_pct;
+    }
+    return out;
+  }
+
+  async setAlignmentCaches(
+    userId: string,
+    rows: { otherId: string; perGrid: Record<GridId, number>; totalPct: number }[],
+  ) {
+    const computedAt = new Date().toISOString();
+    for (const part of chunks(rows, 500)) {
+      const { error } = await this.db.from("alignments").upsert(
+        part.map((r) => ({
+          user_a: userId < r.otherId ? userId : r.otherId,
+          user_b: userId < r.otherId ? r.otherId : userId,
+          per_grid: r.perGrid,
+          total_pct: r.totalPct,
+          computed_at: computedAt,
+        })),
+        { onConflict: "user_a,user_b" },
+      );
+      if (error) throw new Error(`setAlignmentCaches: ${error.message}`);
+    }
   }
 
   async listConversations(userId: string) {
