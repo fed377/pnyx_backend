@@ -146,10 +146,10 @@ export function registerAuthRoutes(app: FastifyInstance) {
     });
     if (error) throw new ApiError(400, error.message);
     // The profiles row is created by the on_auth_user_created trigger, which
-    // doesn't know about birthday — set it directly here, along with
-    // onboarded (there's no separate onboarding step to complete any more).
+    // doesn't know about birthday — set it directly here. `onboarded` stays
+    // false: the app shows its welcome tour first and sets it when that's done.
     if (data.user) {
-      await auth().from("profiles").update({ birthday, onboarded: true }).eq("id", data.user.id);
+      await auth().from("profiles").update({ birthday }).eq("id", data.user.id);
     }
     // With email confirmation enabled Supabase returns a user but no session.
     if (!data.session) {
