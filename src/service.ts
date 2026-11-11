@@ -67,6 +67,8 @@ export type ServiceOptions = {
    * notifications. Off by default so tests can assert on the results directly. */
   deferWork?: boolean;
   voteNotifyWindowMs?: number;
+  /** User ids allowed to change privacy tier without the 30-day cooldown. */
+  tierCooldownExempt?: readonly string[];
 };
 
 const VOTE_NOTIFY_WINDOW_MS = 60_000;
@@ -293,12 +295,17 @@ export class PnyxService {
 
   /* ── Profiles and alignment ─────────────────────────────────────────────── */
 
-  async me(userId: string): Promise<PublicProfile> {
+  private tierCooldownExempt(userId: string): boolean {
+    return this.options.tierCooldownExempt?.includes(userId) ?? false;
+  }
+
+  async me(userId: string): Promise<PublicProfile & { tierCooldownExempt: boolean }> {
     const profile = await this.repo.getProfile(userId);
     if (!profile) throw new ApiError(404, "no such profile");
     const row = await this.repo.getPositions(userId);
     return {
       ...profile,
+      tierCooldownExempt: this.tierCooldownExempt(userId),
       positions: row.positions,
       voteCount: row.voteCount,
       unlocked: row.unlocked,
@@ -475,7 +482,7 @@ export class PnyxService {
         // Not an actual change — strip it so the repo never bumps
         // tierChangedAt (and thus the cooldown) for a same-value PATCH.
         delete patch.privacyTier;
-      } else if (current.tierChangedAt !== null) {
+      } else if (current.tierChangedAt !== null && !this.tierCooldownExempt(userId)) {
         const changedAtMs = new Date(current.tierChangedAt).getTime();
         const nextChangeAtMs = changedAtMs + TIER_CHANGE_COOLDOWN_MS;
         if (Date.now() < nextChangeAtMs) {

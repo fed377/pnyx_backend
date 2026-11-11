@@ -32,6 +32,13 @@ export const config = {
   // pointing at 3.5) — confirmed from a live "internal error" on POST /content.
   scorerModel: process.env.SCORER_MODEL ?? "gemini-3.5-flash-lite",
 
+  /** User ids (comma-separated) that skip the 30-day privacy-tier cooldown —
+   * ids rather than handles, since a handle can be renamed away and claimed. */
+  tierCooldownExemptIds: (process.env.TIER_COOLDOWN_EXEMPT_USER_IDS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
+
   /** Waitlist confirmation emails via Resend (src/email.ts). Optional: without
    * a key, signups are stored but not confirmed. */
   resendApiKey: process.env.RESEND_API_KEY ?? "",

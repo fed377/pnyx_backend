@@ -51,7 +51,10 @@ export function buildServer(
   // routes would exist before rate-limit's hook did and never see it at all.
   app.register(rateLimit, { max: 300, timeWindow: "1 minute" });
   app.register(async (instance) => {
-    const service = new PnyxService(repo, scorer, media, pushSender, emailSender, { deferWork: true });
+    const service = new PnyxService(repo, scorer, media, pushSender, emailSender, {
+      deferWork: true,
+      tierCooldownExempt: config.tierCooldownExemptIds,
+    });
     registerRoutes(instance, service);
   });
   return app;

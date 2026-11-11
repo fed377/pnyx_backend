@@ -479,6 +479,17 @@ describe("privacy tier changes", () => {
     });
   });
 
+  it("lets an exempt account change tier again right away, and says so on /me", async () => {
+    const exempt = new PnyxService(repo, new DeterministicScorer(), media, undefined, undefined, {
+      tierCooldownExempt: [ME],
+    });
+    await exempt.updateProfile(ME, { privacyTier: "speaker" });
+    const after = await exempt.updateProfile(ME, { privacyTier: "private" });
+    expect(after.privacyTier).toBe("private");
+    expect((await exempt.me(ME)).tierCooldownExempt).toBe(true);
+    expect((await service.me(ME)).tierCooldownExempt).toBe(false);
+  });
+
   it("allows a second change once 30 days have passed", async () => {
     await service.updateProfile(ME, { privacyTier: "speaker" });
     const withStaleCooldown = await repo.getProfile(ME);
