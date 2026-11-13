@@ -1,5 +1,6 @@
 {
   "version": 1,
+  "batch": "example",
   "seed": 1,
   "personas": [
     {

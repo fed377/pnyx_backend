@@ -46,6 +46,7 @@ async function main() {
   for (const person of PEOPLE) {
     const email = emailFor(person.handle);
     let user = await findUserByEmail(email);
+    const created = !user;
 
     if (!user) {
       const { data, error } = await db.auth.admin.createUser({
@@ -73,6 +74,9 @@ async function main() {
         bio: person.bio,
         city: person.city,
         privacy_tier: person.tier,
+        // Seed batch (migration 0018), so `seed:clean --batch fixtures` can
+        // remove these. Existing accounts keep the batch they already have.
+        ...(created ? { is_seed: true, seed_batch: "fixtures" } : {}),
       })
       .eq("id", user!.id);
     if (pErr) throw new Error(`profile ${person.handle}: ${pErr.message}`);

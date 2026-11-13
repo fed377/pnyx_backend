@@ -28,14 +28,24 @@ export const BACKEND_ROOT = path.resolve(HERE, "../..");
 export const DATA_DIR = path.resolve(process.env.SEED_DATA_DIR ?? path.join(BACKEND_ROOT, "seed-data"));
 export const MANIFEST_PATH = path.join(DATA_DIR, "manifest.json");
 export const EXAMPLE_MANIFEST_PATH = path.join(HERE, "manifest.example.json");
-export const statePath = (ref: string) => path.join(DATA_DIR, `state.${ref}.json`);
+export const statePath = (ref: string, batch: string) => path.join(DATA_DIR, `state.${ref}.${batch}.json`);
 /** Media and avatar paths in the manifest are relative to DATA_DIR. */
 export const dataFile = (rel: string) => path.join(DATA_DIR, rel);
 
 /** Seed accounts get a dedicated domain, so clean.ts can double-check it is
  * only ever deleting accounts this pipeline created. */
 export const SEED_EMAIL_DOMAIN = "seed.pnyx.local";
-export const emailFor = (personaKey: string) => `${personaKey.replace(/[^a-z0-9.-]/gi, "")}@${SEED_EMAIL_DOMAIN}`;
+/** scripts/seed-supabase.ts's accounts; migration 0018 put them in batch "old". */
+export const LEGACY_SEED_EMAIL_DOMAIN = "pnyx.local";
+/** The batch is part of the address, so two batches reusing a persona key get
+ * two accounts instead of one shared one. */
+export const emailFor = (personaKey: string, batch: string) =>
+  `${personaKey.replace(/[^a-z0-9.-]/gi, "")}.${batch}@${SEED_EMAIL_DOMAIN}`;
+/** Addresses from before batches existed — only batch "old" has these. */
+export const unbatchedEmailFor = (personaKey: string) => `${personaKey.replace(/[^a-z0-9.-]/gi, "")}@${SEED_EMAIL_DOMAIN}`;
+
+/** Same rule as profiles.seed_batch's check constraint (0018). */
+export const BATCH_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
 
 /* ── Manifest ──────────────────────────────────────────────────────────────── */
 
@@ -112,6 +122,10 @@ export const commentSchema = z.object({
 
 export const manifestSchema = z.object({
   version: z.literal(1),
+  /** Stamped on every account load.ts creates (profiles.seed_batch), so
+   * `seed:clean --batch <name>` can remove this run and nothing else. load.ts
+   * refuses a manifest without one. */
+  batch: z.string().regex(BATCH_PATTERN, "batch is lowercase letters, digits and dashes").optional(),
   /** Everything random downstream (vote decisions, follows, timeline) derives from this. */
   seed: z.number().int(),
   personas: z.array(personaSchema),
@@ -160,7 +174,18 @@ export function checkManifestIntegrity(m: Manifest) {
   if (problems.length) throw new Error(`Manifest problems:\n  ${problems.join("\n  ")}`);
 }
 
-/* ── Load state (per target project) ───────────────────────────────────────── */
+/** The manifest's batch — required by anything that writes to a database. */
+export function requireBatch(m: Manifest): string {
+  if (!m.batch) {
+    throw new Error(
+      `The manifest has no "batch". Add one (e.g. "batch": "2026-12-cities") to ${MANIFEST_PATH}, ` +
+        "or start a new manifest with `npm run seed:generate -- --batch <name>`.",
+    );
+  }
+  return m.batch;
+}
+
+/* ── Load state (per target project and batch) ─────────────────────────────── */
 
 export type PostState =
   | { status: "created"; contentId: string }
@@ -184,15 +209,15 @@ export type LoadState = {
   commentVotes: Record<string, true>;
 };
 
-export function loadState(ref: string): LoadState {
-  const file = statePath(ref);
+export function loadState(ref: string, batch: string): LoadState {
+  const file = statePath(ref, batch);
   const empty: LoadState = { users: {}, avatars: {}, posts: {}, votes: {}, follows: {}, comments: {}, commentVotes: {} };
   if (!existsSync(file)) return empty;
   return { ...empty, ...(JSON.parse(readFileSync(file, "utf8")) as Partial<LoadState>) };
 }
 
-export function saveState(ref: string, state: LoadState) {
-  writeJsonAtomic(statePath(ref), state);
+export function saveState(ref: string, batch: string, state: LoadState) {
+  writeJsonAtomic(statePath(ref, batch), state);
 }
 
 export function writeJsonAtomic(file: string, value: unknown) {

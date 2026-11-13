@@ -15,6 +15,7 @@
  *   avatars   DiceBear illustrated avatars                           (no key)
  *
  * Options:
+ *   --batch <name>       required for a new manifest: names this seed run, so it can be cleaned on its own
  *   --personas <n>       target persona count (default 50)
  *   --seed <n>           randomness seed for a new manifest (default 1; an existing manifest keeps its own)
  *   --posts-min/-max     takes per speaker (default 4..9, scaled by activity)
@@ -37,6 +38,7 @@ import {
   argNumber,
   argStages,
   argString,
+  BATCH_PATTERN,
   checkManifestIntegrity,
   DATA_DIR,
   dataFile,
@@ -671,13 +673,25 @@ async function main() {
   }
 
   mkdirSync(DATA_DIR, { recursive: true });
+  const batch = argString(args, "batch");
+  if (batch !== undefined && !BATCH_PATTERN.test(batch)) {
+    throw new Error(`--batch ${batch}: use lowercase letters, digits and dashes (max 40).`);
+  }
   const m: Manifest = existsSync(MANIFEST_PATH)
     ? manifestSchema.parse(JSON.parse(readFileSync(MANIFEST_PATH, "utf8")))
-    : { version: 1, seed: argNumber(args, "seed", 1), personas: [], posts: [], comments: [] };
+    : { version: 1, batch, seed: argNumber(args, "seed", 1), personas: [], posts: [], comments: [] };
   if (argString(args, "seed") && existsSync(MANIFEST_PATH)) {
     console.log(`Note: --seed ignored, the existing manifest keeps seed ${m.seed}.`);
   }
-  console.log(`Manifest ${MANIFEST_PATH} (seed ${m.seed}, model ${model})`);
+  if (batch && m.batch && batch !== m.batch) {
+    throw new Error(
+      `--batch ${batch}, but ${MANIFEST_PATH} is batch "${m.batch}". Start a new batch in its own folder ` +
+        "(move seed-data aside, or set SEED_DATA_DIR).",
+    );
+  }
+  m.batch ??= batch;
+  if (!m.batch) throw new Error("Pass --batch <name> to name this seed run (e.g. --batch 2026-12-cities).");
+  console.log(`Manifest ${MANIFEST_PATH} (batch "${m.batch}", seed ${m.seed}, model ${model})`);
 
   if (runs("personas")) await stagePersonas(m);
   if (runs("posts")) await stagePosts(m);

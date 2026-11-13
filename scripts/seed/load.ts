@@ -14,8 +14,11 @@
  *   --concurrency <n>   personas voting in parallel (default 6). Each persona's votes stay sequential.
  *   --span-days <n>     how far back the timeline stretches (default 30)
  *
- * Resumable: progress is kept in seed-data/state.<ref>.json and every stage
- * skips what it already did. Requires migration 0015_seed_accounts.sql.
+ * Every account is tagged with the manifest's "batch" (profiles.seed_batch),
+ * which is what `seed:clean --batch <name>` deletes by.
+ *
+ * Resumable: progress is kept in seed-data/state.<ref>.<batch>.json and every
+ * stage skips what it already did. Requires migrations 0015 and 0018.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
@@ -38,8 +41,10 @@ import {
   makeService,
   mapPool,
   parseArgs,
+  requireBatch,
   requireTarget,
   saveState,
+  unbatchedEmailFor,
   withRetry,
   type LoadState,
   type Manifest,
@@ -69,7 +74,7 @@ function dryRun(manifest: Manifest) {
   const missingMedia = manifest.posts.filter((p) => !p.media || !existsSync(dataFile(p.media.file)));
   const avatars = manifest.personas.filter((p) => p.avatar && existsSync(dataFile(p.avatar.file)));
 
-  console.log(`Manifest OK (seed ${manifest.seed})`);
+  console.log(`Manifest OK (batch "${requireBatch(manifest)}", seed ${manifest.seed})`);
   console.log(`  personas  ${manifest.personas.length} (${speakers.length} speakers), ${avatars.length} with avatar files`);
   console.log(`  posts     ${manifest.posts.length}, ${withMedia.length} with media on disk`);
   if (missingMedia.length) {
@@ -88,6 +93,7 @@ function dryRun(manifest: Manifest) {
 
 type Ctx = {
   ref: string;
+  batch: string;
   manifest: Manifest;
   state: LoadState;
   save: () => void;
@@ -123,10 +129,21 @@ async function stageAccounts(ctx: Ctx) {
   }
 
   for (const p of ctx.manifest.personas) {
-    let id = ctx.state.users[p.key] ?? byEmail.get(emailFor(p.key).toLowerCase());
-    if (!id) {
+    let id =
+      ctx.state.users[p.key] ??
+      byEmail.get(emailFor(p.key, ctx.batch).toLowerCase()) ??
+      (ctx.batch === "old" ? byEmail.get(unbatchedEmailFor(p.key).toLowerCase()) : undefined);
+    if (id) {
+      // Never pull another batch's account into this one — cleaning either
+      // batch would then take the other's posts with it.
+      const { data: existing, error } = await ctx.db.from("profiles").select("seed_batch").eq("id", id).single();
+      if (error) throw new Error(`profile ${p.key}: ${error.message} (is migration 0018 applied?)`);
+      if (existing.seed_batch && existing.seed_batch !== ctx.batch) {
+        throw new Error(`${p.key}: account ${id} belongs to batch "${existing.seed_batch}", not "${ctx.batch}".`);
+      }
+    } else {
       const { data, error } = await ctx.db.auth.admin.createUser({
-        email: emailFor(p.key),
+        email: emailFor(p.key, ctx.batch),
         password: `${randomUUID()}Aa1!`,
         email_confirm: true,
         // The signup trigger (0012) takes the handle from here, suffixing it if taken.
@@ -151,6 +168,7 @@ async function stageAccounts(ctx: Ctx) {
         birthday: p.birthday,
         onboarded: true,
         is_seed: true,
+        seed_batch: ctx.batch,
       })
       .eq("id", id)
       .select("handle")
@@ -447,13 +465,15 @@ async function main() {
   }
 
   const ref = requireTarget(argString(args, "target"));
+  const batch = requireBatch(manifest);
   const { repo, media, service } = makeService("gemini");
-  const state = loadState(ref);
+  const state = loadState(ref, batch);
   const ctx: Ctx = {
     ref,
+    batch,
     manifest,
     state,
-    save: () => saveState(ref, state),
+    save: () => saveState(ref, batch, state),
     db: adminClient(),
     repo,
     media,
@@ -461,7 +481,7 @@ async function main() {
     personas: new Map(manifest.personas.map((p) => [p.key, p])),
   };
 
-  console.log(`Seeding ${ref} — ${manifest.personas.length} personas, ${manifest.posts.length} posts`);
+  console.log(`Seeding ${ref}, batch "${batch}" — ${manifest.personas.length} personas, ${manifest.posts.length} posts`);
   if (runs("accounts")) await stageAccounts(ctx);
   if (runs("avatars")) await stageAvatars(ctx);
   if (runs("posts")) await stagePosts(ctx);

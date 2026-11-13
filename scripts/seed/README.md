@@ -8,16 +8,42 @@ which writes fixture positions and made-up tallies directly (kept for now, see t
 ```
 generate.ts  →  seed-data/manifest.json + media/ + avatars/     (no database; review this)
 load.ts      →  replays the manifest through PnyxService         (resumable, per-project state file)
-clean.ts     →  deletes every seed account via forgetMe          (dry run unless --yes)
+clean.ts     →  deletes one seed batch via forgetMe                (dry run unless --yes)
 simulation.ts   vote / follow / timeline model (pure, tested in test/seedSimulation.test.ts)
 ```
 
 `seed-data/` is gitignored.
 
+## Batches
+
+Every seed run is a **batch** with a name, such as `old` or `2026-12-cities`. The name is the manifest's
+`"batch"` field, and `load.ts` stamps it on every account it creates (`profiles.seed_batch`). Posts, votes
+and comments belong to the account that made them, so the tag covers all of it. Real users have no
+batch. A database constraint (0018) requires every `is_seed` account to have one, so a seed account
+can't be left untagged.
+
+- Everything seeded before batches existed is batch `old`. That includes the one account left over
+  from `scripts/seed-supabase.ts`.
+- Start a new batch in an empty data folder: `npm run seed:generate -- --batch <name>`. Either move the
+  old `seed-data/` aside first or point `SEED_DATA_DIR` at a new folder. Copy `music/` across if you
+  want the same tracks.
+- Batches don't interact. Personas only vote on, follow and comment on their own batch's posts and
+  people, so removing one batch leaves every other batch's positions as they were.
+- Account emails include the batch (`<key>.<batch>@seed.pnyx.local`), so two batches can reuse persona
+  keys. `load.ts` also refuses to adopt an account that already belongs to a different batch.
+- The load state is per batch: `seed-data/state.<ref>.<batch>.json`.
+
+```bash
+npm run seed:clean -- --target <ref>                      # list batches and account counts
+npm run seed:clean -- --target <ref> --batch old          # dry run
+npm run seed:clean -- --target <ref> --batch old --yes    # delete that batch
+```
+
 ## One-time setup
 
-1. Apply `supabase/migrations/0015_seed_accounts.sql`. It adds `profiles.is_seed`, makes it
-   service-role-only like `privacy_tier`, and adds the `seed_apply_timeline` RPC (service-role only).
+1. Apply `supabase/migrations/0015_seed_accounts.sql` and `0018_seed_batch.sql`. They add
+   `profiles.is_seed` and `profiles.seed_batch`, make both service-role-only like `privacy_tier`, and
+   add the `seed_apply_timeline` RPC (service-role only).
 2. In `.env`: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY`, and `PEXELS_API_KEY`
    (free at pexels.com/api) for the media stage.
 3. For sound on videos: install ffmpeg (`winget install Gyan.FFmpeg`, or set `FFMPEG_PATH`) and put
@@ -51,8 +77,8 @@ mkdir -p seed-data && cp scripts/seed/manifest.example.json seed-data/manifest.j
 npm run seed:generate -- --only media,audio,avatars   # Pexels + ffmpeg + DiceBear, no Gemini
 npm run seed:load -- --dry-run
 npm run seed:load -- --target <project-ref>       # ideally a Supabase branch, not prod
-npm run seed:clean -- --target <project-ref>      # see what would go
-npm run seed:clean -- --target <project-ref> --yes
+npm run seed:clean -- --target <project-ref> --batch example      # see what would go
+npm run seed:clean -- --target <project-ref> --batch example --yes
 ```
 
 With only 15 posts nobody reaches `UNLOCK_AT` (50 votes), and the dry run says so. That's expected.
@@ -60,8 +86,8 @@ With only 15 posts nobody reaches `UNLOCK_AT` (50 votes), and the dry run says s
 ## Full run
 
 ```bash
-rm -rf seed-data                                   # or keep it and just top up
-npm run seed:generate -- --personas 50             # ~20 speakers × 4–9 takes ≈ 120 posts
+mv seed-data seed-data-old                         # or keep it and top up the same batch
+npm run seed:generate -- --batch <name> --personas 50   # ~20 speakers × 4–9 takes ≈ 120 posts
 #   → review / edit seed-data/manifest.json
 npm run seed:load -- --dry-run
 npm run seed:load -- --target <project-ref>
@@ -77,7 +103,7 @@ be run on their own with `--only`:
 
 | Stage | Through | Notes |
 |---|---|---|
-| accounts | `auth.admin.createUser` + profile update | Email `<key>@seed.pnyx.local`, `is_seed = true`, `onboarded`, birthday. The handle comes from the signup trigger (it adds a suffix if the handle is taken). `grid_positions` is not touched. |
+| accounts | `auth.admin.createUser` + profile update | Email `<key>.<batch>@seed.pnyx.local`, `is_seed = true`, `seed_batch`, `onboarded`, birthday. The handle comes from the signup trigger (it adds a suffix if the handle is taken). `grid_positions` is not touched. |
 | avatars | `createUploadTicket` → PUT → `service.updateProfile` | Goes through the own-media check on `avatarUrl`. |
 | posts | `createUploadTicket` → PUT → `service.createContent` | Real Gemini scoring and moderation, one post at a time, retried on 503. A 422 is recorded as `rejected` in the state file with its reason, never retried. |
 | votes | `service.castVote` | See the vote model below. Personas run in parallel (`--concurrency`, default 6); each persona's votes run one after another, because `recomputePositions` reads the previous votes. |
@@ -119,5 +145,5 @@ it prints `REPLAY MISMATCH` and exits non-zero.
   removes it with the account.
 - **Cleaning deletes real users' votes on seed posts** (they cascade with the content). Those users'
   positions are recomputed on their next vote.
-- **Legacy seed:** accounts made by `scripts/seed-supabase.ts` (`@pnyx.local`, no `is_seed`) are
-  ignored by `clean.ts`. Delete them by hand if you move to this pipeline.
+- **Legacy seed:** migration 0018 put the accounts made by `scripts/seed-supabase.ts`
+  (`@pnyx.local`) in batch `old`. Any new accounts it creates go in batch `fixtures`.
